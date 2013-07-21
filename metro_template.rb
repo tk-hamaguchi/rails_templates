@@ -18,9 +18,14 @@ gem 'devise'
 gem 'devise-i18n'
 gem 'simple_form'
 gem 'kaminari'
+gem 'rails_config'
+gem 'paranoia'
 
 gem_group :development do
   gem 'thin'
+  gem 'capistrano-ext'
+  gem 'capistrano_colors'
+  gem 'capistrano-unicorn'
 end
 
 gem_group :test do
@@ -61,6 +66,7 @@ run 'guard init'
 generate 'bootstrap:install', 'less'
 generate 'bootstrap:layout', 'application', 'fluid', "-f"
 
+generate 'rails_config:install'
 generate 'kaminari:config'
 generate 'kaminari:views', 'bootstrap'
 generate 'simple_form:install', '--bootstrap'
@@ -70,8 +76,6 @@ environment "config.action_mailer.default_url_options = { host: 'localhost:3000'
 
 gsub_file 'config/application.rb', /^  end\nend$/, "\n    config.generators do |g|\n      g.test_framework      :rspec\n      g.integration_tool    :rspec\n      g.fixture_replacement :factory_girl, dir:'spec/factories'\n    end\n  end\nend"
 environment "config.assets.initialize_on_precompile = false", env: 'production' if @heroku_flag
-
-gsub_file "spec/spec_helper.rb", /^end$/, "\n  FactoryGirl.definition_file_paths = [\n    File.join(Rails.root, 'factories')\n    File.join(Rails.root, 'spec', 'factories')\n  ]\n\n  FactoryGirl.find_definitions\nend"
 
 
 generate :controller, 'welcome index'
@@ -118,7 +122,19 @@ file "app/views/commons/_bootstrap_nav_bar.html.erb", <<-CODE
     <% end %>
 CODE
 
+file 'lib/tasks/rspec.rake', <<-CODE
+require 'rspec/core/rake_task'
+
+RSpec::Core::RakeTask.new(:spec)
+CODE
+
+
 gsub_file 'app/views/layouts/application.html.erb', /<div class="navbar navbar-fluid-top">.+<\/div><!--\/\.nav-collapse -->\n        <\/div>\n      <\/div>\n    <\/div>\n/m, "<%= render partial: '/commons/bootstrap_nav_bar' %>\n"
 
 rake "db:create"
 
+run 'mkdir -p misc/capistrano'
+
+inside('misc/capistrano') do
+  run 'capify .'
+end
