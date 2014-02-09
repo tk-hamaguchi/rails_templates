@@ -22,20 +22,20 @@ $ rails new my_app -T --skip-bundle -m https://raw.github.com/tk-hamaguchi/rails
 Type of templates
 --------
 
-|                     | plain_template      | metro_template      |
-| ------------------- |:-------------------:|:-------------------:|
-| Authentication      | Devise              | Devise              |
-| OmniAuth            | none                | none                |
-| Form Builder        | SimpleForm          | SimpleForm          |
-| Pagenation          | Kaminari            | Kaminari            |
-| User Configurator   | RailsConfig         | RailsConfig         |
-| Logical deletion    | Paranoia            | Paranoia            |
-| Test Solution       | Guard + Spring      | Guard + Spring      |
-| Test Frameworks     | RSpec + Cucumber    | RSpec + Cucumber    |
-| Test Data Generator | Faker + FactoryGirl | Faker + FactoryGirl |
-| Application Server  | Thin or Unicorn     | Thin or Unicorn     |
-| Deploy Tools        | Capistrano          | Capistrano          |
-| Themes              | none                | TwitterBootstrap    |
+|                     | plain_template      | metro_template      | bootstrap_template  |
+| ------------------- |:-------------------:|:-------------------:|:-------------------:|
+| Authentication      | Devise              | Devise              | Devise              |
+| OmniAuth            | none                | none                | none                |
+| Form Builder        | SimpleForm          | SimpleForm          | SimpleForm          |
+| Pagenation          | Kaminari            | Kaminari            | Kaminari            |
+| User Configurator   | RailsConfig         | RailsConfig         | RailsConfig         |
+| Logical deletion    | Paranoia            | Paranoia            | Paranoia            |
+| Test Solution       | Guard + Spring      | Guard + Spring      | Guard + Spring      |
+| Test Frameworks     | RSpec + Cucumber    | RSpec + Cucumber    | RSpec + Cucumber    |
+| Test Data Generator | Faker + FactoryGirl | Faker + FactoryGirl | Faker + FactoryGirl |
+| Application Server  | Puma                | Thin or Unicorn     | Puma                |
+| Deploy Tools        | Capistrano          | Capistrano          | Capistrano          |
+| Themes              | none                | TwitterBootstrap    | Bootstrap3          |
 
 
 License

@@ -30,18 +30,17 @@ gem 'simple_form'
 gem 'kaminari'
 gem 'rails_config'
 gem 'paranoia'
+gem 'puma'
 
-gem_group :development do
-  gem 'thin'
-  gem 'capistrano-ext'
-  gem 'capistrano_colors'
-  gem 'capistrano-unicorn'
-end
+
 
 gem_group :test do
   gem 'spring'
   gem 'rb-inotify', '~> 0.9'
   gem 'rspec-rails'
+  gem 'poltergeist'
+  gem 'turnip'
+  gem 'capybara-webkit'
   gem 'cucumber-rails', require: false
   gem 'database_cleaner'
   gem 'factory_girl_rails'
@@ -50,10 +49,6 @@ gem_group :test do
   gem 'guard'
   gem 'guard-rspec'
   gem 'guard-cucumber'
-end
-
-gem_group :production do
-  gem 'unicorn'
 end
 
 
