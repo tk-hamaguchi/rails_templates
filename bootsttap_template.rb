@@ -16,10 +16,9 @@ git commit: '-a -m "first commit."'
 
 
 ## Update gem source.
-add_source 'http://production.s3.rubygems.org'
+add_source 'http://bundler-api.herokuapp.com'
 gsub_file 'Gemfile', "source 'https://rubygems.org'", "#source 'https://rubygems.org'"
 gsub_file 'Gemfile', /# (gem 'therubyracer'.*)/, '\1'
-gsub_file 'Gemfile', /# (gem 'capistrano'.*)/, '\1'
 gsub_file 'Gemfile', /# (gem 'bcrypt-ruby'.*)/, '\1'
 
 
@@ -52,6 +51,14 @@ gem_group :test do
   gem 'guard-rspec'
   gem 'guard-cucumber'
 end
+
+gem_group :development do
+  gem 'capistrano', '~> 3.1',         require: false
+  gem 'capistrano-bundler',           require: false
+  gem 'capistrano-rvm', '~> 0.1.0',   require: false
+  gem 'capistrano-rails', '~> 1.1.0', require: false
+end
+
 
 
 ## Execute bundle install
@@ -91,9 +98,15 @@ CODE
 
 file "config/puma.rb", <<-CODE
 environment ENV['RACK_ENV']
-threads 0,5
 
-#workers 3
+threads 2,8
+workers 2
+
+pidfile "tmp/pids/puma.pid"
+state_path "tmp/puma.state"
+stdout_redirect 'log/puma_stdout.log','log/puma_stderr.log'
+bind 'unix://tmp/sockets/puma.sock'
+
 preload_app!
 
 on_worker_boot do
@@ -107,10 +120,25 @@ CODE
 
 ## Configure bootstrap-sass
 gsub_file 'app/assets/javascripts/application.js',  /^\/\/= require_tree \.$/,  "//= require bootstrap\n//= require_tree ."
-gsub_file 'app/assets/stylesheets/application.css', /^ \*= require_self$/, " *= require bootstrap\n *= require base\n *= require_self"
-file "app/assets/stylesheets/base.css.scss", <<-CODE
+gsub_file 'app/assets/stylesheets/application.css', /^ \*= require_self$/, " *= require bootstrap_custom\n *= require base\n *= require_self"
+file "app/assets/stylesheets/bootstrap_custom.css.scss", <<-CODE
+//$brand-primary: #428bca;
+//$navbar-default-color: #777;
+//$navbar-default-bg: #f8f8f8;
+//$navbar-default-toggle-hover-bg: #ddd;
+//$navbar-default-toggle-icon-bar-bg: #888;
+//$navbar-default-toggle-border-color: #ddd;
+//$navbar-default-link-color: #777;
+//$navbar-default-link-hover-color: #333;
+//$navbar-default-link-hover-bg: transparent;
+//$navbar-default-link-disabled-color: #ccc;
+//$navbar-default-link-disabled-bg: transparent;
+//$navbar-default-link-active-color: #555;
 @import "bootstrap";
+@import "font-awesome";
+CODE
 
+file "app/assets/stylesheets/base.css.scss", <<-CODE
 .navbar .navbar-right {
   padding-top:   7px;
   padding-right: 10px;
@@ -133,8 +161,8 @@ file "app/assets/stylesheets/base.css.scss", <<-CODE
     background-color: #33C;
   }
 }
-
 CODE
+
 run 'rm -f app/views/layouts/application.html.erb'
 file "app/views/layouts/application.html.erb",
   <<-CODE
@@ -362,6 +390,201 @@ rake "db:create"
 run 'mkdir -p misc/capistrano'
 
 inside('misc/capistrano') do
-  run 'capify .'
+  run 'cap install STAGES=local,staging,production'
 end
+
+gsub_file 'misc/capistrano/Capfile', /# (require 'capistrano\/rvm')/, '\1'
+gsub_file 'misc/capistrano/Capfile', /# (require 'capistrano\/bundler')/, '\1'
+gsub_file 'misc/capistrano/Capfile', /# (require 'capistrano\/rails\/assets')/, '\1'
+gsub_file 'misc/capistrano/Capfile', /# (require 'capistrano\/rails\/migrations')/, '\1'
+
+append_file 'misc/capistrano/Capfile', <<-CODE
+
+require 'capistrano/rails'
+require 'capistrano/console'
+#require "whenever/capistrano"
+CODE
+
+gsub_file 'misc/capistrano/config/deploy.rb', /(set :application,) .*/, "set :application, '#{app_name}'"
+gsub_file 'misc/capistrano/config/deploy.rb', /# (ask :branch, .*)/, '\1'
+gsub_file 'misc/capistrano/config/deploy.rb', /# (set :deploy_to,) .*/, '\1 "/var/rails/#{fetch(:application)}"'
+gsub_file 'misc/capistrano/config/deploy.rb', /# (set :scm,) .*/, '\1 :git'
+gsub_file 'misc/capistrano/config/deploy.rb', /# (set :format,) .*/, '\1 :pretty'
+gsub_file 'misc/capistrano/config/deploy.rb', /# (set :log_level,) .*/, '\1 :debug'
+gsub_file 'misc/capistrano/config/deploy.rb', /# (set :pty,) .*/, '\1 true'
+gsub_file 'misc/capistrano/config/deploy.rb', /# (set :linked_files,) .*/, '\1 %w{config/database.yml}'
+gsub_file 'misc/capistrano/config/deploy.rb', /# (set :linked_dirs,) .*/, '\1 %w{bin log tmp/pids tmp/cache tmp/sockets vendor/bundle public/system}'
+gsub_file 'misc/capistrano/config/deploy.rb', /# (set :keep_releases,) .*/, '\1 5'
+append_file 'misc/capistrano/config/deploy.rb', <<-'CODE'
+
+set :whenever_identifier, ->{ "#{fetch(:application)}_#{fetch(:stage)}" }
+
+SSHKit.config.command_map[:rake]     = "bundle exec rake"
+SSHKit.config.command_map[:rails]    = "bundle exec rails"
+SSHKit.config.command_map[:whenever] = "bundle exec whenever"
+
+set :rvm_type,         :system
+set :rvm_ruby_version, "ruby-2.1.0-p0@#{fetch(:application)}"
+
+set :db_name, 'gtmd'
+set :db_user, 'root'
+
+set :ssh_options, {
+  keys: [File.expand_path('~/.ssh/id_rsa')],
+  forward_agent: true,
+  auth_methods: %w(publickey)
+}
+
+CODE
+
+file "misc/capistrano/lib/capistrano/tasks/#{app_name}.cap", <<-'CODE'
+namespace :deploy do
+
+  desc 'upload importabt files'
+  task :upload do
+    on roles(:app) do |host|
+      require 'erb'
+      html = ERB.new(File.read("templates/database.yml.erb")).result(binding)
+      upload!(StringIO.new(html), "#{shared_path}/config/database.yml")
+    end
+  end
+
+  desc 'add permission'
+  task :add_permission do
+    on roles(:app) do |host|
+      execute "chmod g+w -R #{release_path}"
+    end
+  end
+
+  after 'deploy:check:make_linked_dirs', 'deploy:upload'
+  after :finishing, 'deploy:cleanup'
+  after 'deploy:cleanup', 'deploy:add_permission'
+
+
+  desc 'upload monit config files'
+  task :upload_monitrc do
+    on roles(:app) do |host|
+      require 'erb'
+      html = ERB.new(File.read("templates/monit.rc.erb")).result(binding)
+      upload!(StringIO.new(html), "#{shared_path}/config/#{application}.monit.rc")
+    end
+  end
+
+  desc 'upload nginx config files'
+  task :upload_nginx_config do
+    on roles(:app) do |host|
+      require 'erb'
+      html = ERB.new(File.read("templates/nginx.conf.erb")).result(binding)
+      upload!(StringIO.new(html), "#{shared_path}/config/#{application}.nginx.conf")
+    end
+  end
+
+  desc 'restart puma'
+  task :restart_puma do
+    on roles(:app) do |host|
+      execute "kill -USR2 `cat #{current_path}/tmp/pids/puma.pid`"
+    end
+  end
+
+
+  after 'deploy:finishing',           'deploy:upload_monitrc'
+  after 'deploy:upload_monitrc',      'deploy:upload_nginx_config'
+  after 'deploy:upload_nginx_config', 'deploy:restart_puma'
+
+end
+CODE
+
+run 'mkdir -p misc/capistrano/templates/'
+
+
+file "misc/capistrano/templates/database.yml.erb", <<-'CODE'
+development: &defaults
+  adapter: mysql2
+  encoding: utf8
+  reconnect: false
+  username: <%= fetch(:db_user) || fetch(:application) %>
+  password: <%= fetch(:db_pass) || '' %>
+  database: <%= fetch(:db_name) || fetch(:application) %>
+  socket: <%=   fetch(:db_sock) || '/var/lib/mysql/mysql.sock' %>
+  pool: 5
+
+test: &test
+  <<: *defaults
+  database: <%= fetch(:db_name) || fetch(:application) %>_test
+
+staging:
+  <<: *defaults
+
+production:
+  <<: *defaults
+
+cucumber:
+  <<: *test
+CODE
+
+file "misc/capistrano/templates/monit.rc.erb", <<-'CODE'
+check process <%= fetch(:application) %> with pidfile <%= fetch(:current_path) %>/tmp/pids/puma.pid
+  group railsapp
+  start program = "/usr/local/rvm/bin/rvm-shell <%= fetch(:rvm_ruby_version) %> -c 'cd <%= fetch(:current_path) %> ; RAILS_ENV=production bundle exec puma -C config/puma.rb -b unix:///var/lib/puma/<%= fetch(:application) %>.sock'" as uid rails and gid rails
+  stop program = "/bin/kill `cat <%= fetch(:current_path) %>/tmp/pids/puma.pid`" as uid rails and gid rails
+  if failed unixsocket /var/lib/puma/<%= fetch(:application) %>.sock then restart
+  if 5 restarts within 5 cycles then timeout
+  depends on <%= fetch(:application) %>_database_yml
+
+check file <%= fetch(:application) %>_database_yml path <%= fetch(:current_path) %>/config/database.yml
+  group railsapp
+  if failed checksum then unmonitor
+
+CODE
+
+file "misc/capistrano/templates/nginx.conf.erb", <<-'CODE'
+server{
+  listen       80;
+  server_name _;
+  location / {
+    rewrite ^(.*) https://$http_host$1;
+    break;
+  }
+}
+
+
+server{
+  listen 443;
+  server_name _;
+
+  root <%= fetch(:current_path) %>/public/;
+
+  client_max_body_size 100M;
+
+
+  ssl on;
+  ssl_certificate     server.crt;
+  ssl_certificate_key server.key;
+
+  ssl_session_timeout 5m;
+
+  ssl_protocols       SSLv3 TLSv1;
+  ssl_ciphers         HIGH:!ADH:!aNULL:!MD5;
+
+  ssl_prefer_server_ciphers   on;
+
+  location /assets/ {
+    root <%= fetch(:current_path) %>/public/;
+  }
+
+  location / {
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_redirect off;
+    proxy_read_timeout 300;
+
+    proxy_pass http://<%= fetch(:application) %>;
+  }
+}
+upstream <%= fetch(:application) %> {
+  server unix:///var/lib/puma/<%= fetch(:application) %>.sock;
+}
+CODE
 
