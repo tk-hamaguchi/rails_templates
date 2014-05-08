@@ -27,29 +27,34 @@ gem 'devise'
 gem 'devise-i18n'
 gem 'simple_form'
 gem 'kaminari'
+gem 'bootstrap-kaminari-views'
 gem 'rails_config'
 gem 'paranoia'
 gem 'puma'
 gem 'bootstrap-sass'
 gem 'font-awesome-sass'
 
-
-
-
 gem_group :test do
   gem 'spring'
+  gem 'spring-commands-rspec'
+  gem 'spring-commands-cucumber'
   gem 'rb-inotify', '~> 0.9'
-  gem 'rspec-rails'
+  gem 'rspec-rails', '~> 3.0.0.beta2'
   gem 'poltergeist'
-  gem 'turnip'
   gem 'cucumber-rails', require: false
   gem 'database_cleaner'
   gem 'factory_girl_rails'
   gem 'faker'
   gem 'faker-japanese'
   gem 'guard'
+  gem 'guard-rails'
   gem 'guard-rspec'
   gem 'guard-cucumber'
+  gem 'guard-coffeescript'
+  gem 'guard-migrate'
+  gem 'guard-livereload'
+  gem 'guard-bundler'
+  gem 'guard-yard'
 end
 
 gem_group :development do
@@ -349,6 +354,7 @@ CODE
 
 ## Configure kaminari
 generate 'kaminari:config'
+=begin
 generate 'kaminari:views', 'bootstrap'
 
 gsub_file 'app/views/kaminari/_paginator.html.erb',
@@ -357,7 +363,7 @@ gsub_file 'app/views/kaminari/_paginator.html.erb',
 gsub_file 'app/views/kaminari/_paginator.html.erb',
   /^(\s*<ul)>$/,
   '\1 class="pagination">'
-
+=end
 
 
 ## Configure Devise
@@ -523,15 +529,15 @@ cucumber:
 CODE
 
 file "misc/capistrano/templates/monit.rc.erb", <<-'CODE'
-check process <%= fetch(:application) %> with pidfile <%= fetch(:current_path) %>/tmp/pids/puma.pid
+check process <%= fetch(:application) %> with pidfile <%= current_path %>/tmp/pids/puma.pid
   group railsapp
-  start program = "/usr/local/rvm/bin/rvm-shell <%= fetch(:rvm_ruby_version) %> -c 'cd <%= fetch(:current_path) %> ; RAILS_ENV=production bundle exec puma -C config/puma.rb -b unix:///var/lib/puma/<%= fetch(:application) %>.sock'" as uid rails and gid rails
-  stop program = "/bin/kill `cat <%= fetch(:current_path) %>/tmp/pids/puma.pid`" as uid rails and gid rails
+  start program = "/usr/local/rvm/bin/rvm-shell <%= fetch(:rvm_ruby_version) %> -c 'cd <%= current_path %> ; RAILS_ENV=production bundle exec puma -C config/puma.rb -b unix:///var/lib/puma/<%= fetch(:application) %>.sock'" as uid rails and gid rails
+  stop program = "/bin/kill `cat <%= current_path %>/tmp/pids/puma.pid`" as uid rails and gid rails
   if failed unixsocket /var/lib/puma/<%= fetch(:application) %>.sock then restart
   if 5 restarts within 5 cycles then timeout
   depends on <%= fetch(:application) %>_database_yml
 
-check file <%= fetch(:application) %>_database_yml path <%= fetch(:current_path) %>/config/database.yml
+check file <%= fetch(:application) %>_database_yml path <%= current_path %>/config/database.yml
   group railsapp
   if failed checksum then unmonitor
 
@@ -552,7 +558,7 @@ server{
   listen 443;
   server_name _;
 
-  root <%= fetch(:current_path) %>/public/;
+  root <%= current_path %>/public/;
 
   client_max_body_size 100M;
 
@@ -569,8 +575,17 @@ server{
   ssl_prefer_server_ciphers   on;
 
   location /assets/ {
-    root <%= fetch(:current_path) %>/public/;
+    root <%= current_path %>/public/;
   }
+
+  location /system/ {
+    root <%= current_path %>/public/;
+  }
+
+  location /favicon.ico {
+    root <%= current_path %>/public/;
+  }
+
 
   location / {
     proxy_set_header X-Real-IP $remote_addr;
