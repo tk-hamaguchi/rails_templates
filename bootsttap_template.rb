@@ -461,6 +461,7 @@ namespace :deploy do
   task :add_permission do
     on roles(:app) do |host|
       execute "chmod g+w -R #{release_path}"
+      execute "chmod g+w -R #{shared_path}"
     end
   end
 
