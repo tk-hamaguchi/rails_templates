@@ -449,9 +449,11 @@ namespace :deploy do
   desc 'upload database.yml'
   task :upload do
     on roles(:app) do |host|
-      require 'erb'
-      html = ERB.new(File.read("templates/database.yml.erb")).result(binding)
-      upload!(StringIO.new(html), "#{shared_path}/config/database.yml")
+      unless test "[ -f #{shared_path}/config/database.yml ]"
+        require 'erb'
+        html = ERB.new(File.read("templates/database.yml.erb")).result(binding)
+        upload!(StringIO.new(html), "#{shared_path}/config/database.yml")
+      end
     end
   end
 
@@ -470,18 +472,22 @@ namespace :deploy do
   desc 'upload monit config files'
   task :upload_monitrc do
     on roles(:app) do |host|
-      require 'erb'
-      html = ERB.new(File.read("templates/monit.rc.erb")).result(binding)
-      upload!(StringIO.new(html), "#{shared_path}/config/#{fetch(:application)}.monit.rc")
+      unless test "[ -f #{shared_path}/config/#{fetch(:application)}.monit.rc ]"
+        require 'erb'
+        html = ERB.new(File.read("templates/monit.rc.erb")).result(binding)
+        upload!(StringIO.new(html), "#{shared_path}/config/#{fetch(:application)}.monit.rc")
+      end
     end
   end
 
   desc 'upload nginx config files'
   task :upload_nginx_config do
     on roles(:app) do |host|
-      require 'erb'
-      html = ERB.new(File.read("templates/nginx.conf.erb")).result(binding)
-      upload!(StringIO.new(html), "#{shared_path}/config/#{fetch(:application)}.nginx.conf")
+      unless test "[ -f #{shared_path}/config/#{fetch(:application)}.nginx.conf ]"
+        require 'erb'
+        html = ERB.new(File.read("templates/nginx.conf.erb")).result(binding)
+        upload!(StringIO.new(html), "#{shared_path}/config/#{fetch(:application)}.nginx.conf")
+      end
     end
   end
 
@@ -495,7 +501,7 @@ namespace :deploy do
 
   after 'deploy:finishing',           'deploy:upload_monitrc'
   after 'deploy:upload_monitrc',      'deploy:upload_nginx_config'
-  after 'deploy:upload_nginx_config', 'deploy:restart_puma'
+  #after 'deploy:upload_nginx_config', 'deploy:restart_puma'
 
 end
 CODE
