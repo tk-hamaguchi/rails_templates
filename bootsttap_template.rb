@@ -430,9 +430,9 @@ SSHKit.config.command_map[:rails]    = "bundle exec rails"
 SSHKit.config.command_map[:whenever] = "bundle exec whenever"
 
 set :rvm_type,         :system
-set :rvm_ruby_version, "ruby-2.1.0-p0@#{fetch(:application)}"
+set :rvm_ruby_version, "ruby-2.1.2@#{fetch(:application)}"
 
-set :db_name, 'gtmd'
+set :db_name, fetch(:application)
 set :db_user, 'root'
 
 set :ssh_options, {
@@ -443,10 +443,10 @@ set :ssh_options, {
 
 CODE
 
-file "misc/capistrano/lib/capistrano/tasks/#{app_name}.cap", <<-'CODE'
+file "misc/capistrano/lib/capistrano/tasks/#{app_name}.rake", <<-'CODE'
 namespace :deploy do
 
-  desc 'upload importabt files'
+  desc 'upload database.yml'
   task :upload do
     on roles(:app) do |host|
       require 'erb'
@@ -472,7 +472,7 @@ namespace :deploy do
     on roles(:app) do |host|
       require 'erb'
       html = ERB.new(File.read("templates/monit.rc.erb")).result(binding)
-      upload!(StringIO.new(html), "#{shared_path}/config/#{application}.monit.rc")
+      upload!(StringIO.new(html), "#{shared_path}/config/#{fetch(:application)}.monit.rc")
     end
   end
 
@@ -481,7 +481,7 @@ namespace :deploy do
     on roles(:app) do |host|
       require 'erb'
       html = ERB.new(File.read("templates/nginx.conf.erb")).result(binding)
-      upload!(StringIO.new(html), "#{shared_path}/config/#{application}.nginx.conf")
+      upload!(StringIO.new(html), "#{shared_path}/config/#{fetch(:application)}.nginx.conf")
     end
   end
 
