@@ -1,10 +1,10 @@
 #####
 ##
-## Bootstrap template for Rails5
+## Rails5 template
 ##
 ## @author @tk_hamaguchi
 ## @examples Generate with template
-##   $ rails new my_app -T --skip-bundle -m https://github.com/tk-hamaguchi/rails_templates/blob/master/bootsttap_template.rb
+##   $ rails new my_app -T --skip-bundle -m https://github.com/tk-hamaguchi/rails_templates/blob/master/rails5_template.rb
 ##
 #
 
@@ -31,10 +31,13 @@ gem 'haml-rails'
 
 gem 'devise'
 gem 'devise-i18n'
+gem 'email_validator'
 gem 'simple_form'
 gem 'kaminari'
 gem 'figaro'
-gem 'faker', require: false
+
+gem 'paranoia', '>= 2.2.0.pre'
+  #github: 'rubysherpas/paranoia', branch: 'rails5'
 
 if bootstrap
   gem 'bootstrap', '~> 4.0.0.alpha3'
@@ -45,7 +48,6 @@ end
 gem_group :development, :test do
   gem 'capybara-webkit'
   gem 'database_cleaner'
-  gem 'rails-controller-testing', git: 'https://github.com/rails/rails-controller-testing'
   gem 'rspec-rails', '~> 3.5.0'
   gem 'coderay'
   gem 'cucumber-rails', require: false
@@ -57,6 +59,9 @@ gem_group :development, :test do
   gem 'factory_girl_rails'
   gem 'simplecov'
   gem 'simplecov-rcov'
+  gem 'faker'
+  gem 'faker-japanese'
+  gem 'shoulda-matchers'
 end
 
 gem_group :development do
@@ -98,8 +103,22 @@ ja:
   sign_in: 'ログイン'
   sign_up: '新規登録'
   sign_out: 'ログアウト'
-  edit_user_registration: 'ユーザー設定'
+  edit_user_registration: 'ユーザ設定'
   copyright_html: "Copyright &copy; %{year} #{app_name.camelize} Project, All Rights Reserved."
+
+  activerecord:
+    attributes:
+      user:
+        current_password: '現在のパスワード'
+        username: 'ユーザ名'
+        email: 'メールアドレス'
+        password: 'パスワード'
+        password_confirmation: '確認用パスワード'
+        remember_me: 'ログインを記憶'
+        reset_password_token:
+        unlock_token:
+    models:
+      user: 'ユーザ'
 CODE
 
 
@@ -113,6 +132,7 @@ core
 .DS_Store
 config/database.yml
 config/cable.yml
+coverage
 CODE
 
 
@@ -126,6 +146,11 @@ CODE
 
 ## Configure rails config
 generate 'config:install'
+
+
+gsub_file 'config/database.yml',
+  /^production:.*/m,
+  "production:\n  url: <%= ENV['DATABASE_URL'] %>"
 
 
 ## Configure bootstrap-sass
@@ -181,17 +206,17 @@ if bootstrap
     %li.nav-item
       .dropdown.pull-xs-right
         - if user_signed_in?
-          %a.nav-link.dropdown-toggle#dropdownMenu2{'type' => 'button', 'data-toggle' => 'dropdown', 'aria-haspopup' => true, 'aria-expanded' => false}
+          %a.nav-link.dropdown-toggle#dropdownMenu2{'data-toggle' => 'dropdown', 'aria-haspopup' => true, 'aria-expanded' => false}
             %i.fa.fa-user
-            -#= t('grobal-right-dropdown-button')
+            = current_user.username
           .dropdown-menu.dropdown-menu-right{'aria-labelledby' => 'dropdownMenu2'}
-            = link_to my_top_path, {class:'dropdown-item', type:'button'} do
+            = link_to edit_user_registration_path, {class:'dropdown-item'} do
               %i.fa.fa-edit
-              = t('.edit')
+              = t('edit_user_registration')
             .dropdown-divider
-            = link_to destroy_user_session_path, {class:'dropdown-item', type:'button', method: :delete} do
+            = link_to destroy_user_session_path, {class:'dropdown-item', method: :delete} do
               %i.fa.fa-power-off
-              = t('logout')
+              = t('sign_out')
         - else
           - unless controller.is_a?(Devise::SessionsController)
             = link_to new_user_session_path, {class:'btn btn-secondary', type:'button'} do
@@ -268,6 +293,10 @@ file 'app/views/layouts/devise.html.haml', <<-CODE
 = render template: 'layouts/center_middle', locals:{ header: true }
 CODE
 
+file 'app/views/layouts/users/registrations.html.haml', <<-CODE
+= render template: 'layouts/grid_system'
+CODE
+
 
 file 'app/assets/stylesheets/center_middle_layout.scss', <<-CODE
 .center-middle-layout {
@@ -303,12 +332,6 @@ file 'app/assets/stylesheets/center_middle_layout.scss', <<-CODE
 }
 CODE
 
-#file '', <<-CODE
-#CODE
-
-#file '', <<-CODE
-#CODE
-
 file 'app/assets/stylesheets/base.css.scss', <<-CODE
 html,body {
   height: 100%;
@@ -338,9 +361,12 @@ body {
 }
 CODE
 
-insert_into_file 'app/assets/stylesheets/application.css', " *= require base\n", before: " *= require_tree .\n"
-insert_into_file 'app/assets/javascripts/application.js', "//= require tether\n//= require bootstrap-sprockets\n", before: "//= require_tree .\n"
-
+insert_into_file 'app/assets/stylesheets/application.css',
+  " *= require base\n",
+  before: " *= require_tree .\n"
+insert_into_file 'app/assets/javascripts/application.js',
+  "//= require tether\n//= require bootstrap-sprockets\n",
+  before: "//= require_tree .\n"
 
 file "lib/#{app_name}.rb", <<-CODE
 require '#{app_name}/version'
@@ -366,12 +392,67 @@ file 'app/views/layouts/_footer.html.haml', <<-CODE
     = t 'copyright_html', year: Time.now.year
 CODE
 
-gsub_file 'app/assets/stylesheets/application.css',  /^ \*= require_tree \.$/,  ' *  require_tree .'
-gsub_file 'app/assets/javascripts/application.js', /^\/\/= require_tree \.$/,  '// require_tree .'
+gsub_file 'app/assets/stylesheets/application.css',
+  /^ \*= require_tree \.$/,
+  ' *  require_tree .'
+gsub_file 'app/assets/javascripts/application.js',
+  /^\/\/= require_tree \.$/,
+  '// require_tree .'
 
 
 ## Update test frameworks to rspec and cucumber with FactoryGirl.
 generate 'rspec:install'
+append_file 'spec/rails_helper.rb', <<-CODE
+
+Dir[Rails.root.join("spec/support/**/*.rb")].each { |f| require f }
+CODE
+file 'spec/support/shoulda_matchers.rb', <<-CODE
+Shoulda::Matchers.configure do |config|
+  config.integrate do |with|
+    with.test_framework :rspec
+    with.library :rails
+  end
+end
+CODE
+file 'spec/support/devise.rb', <<-CODE
+RSpec.configure do |config|
+  config.include Devise::Test::ControllerHelpers, type: :controller
+  config.include Devise::Test::ControllerHelpers, type: :helper
+  config.include Devise::Test::ControllerHelpers, type: :view
+end
+CODE
+prepend_file 'spec/rails_helper.rb', <<-CODE
+require 'simplecov'
+require 'simplecov-rcov'
+SimpleCov.start 'rails'
+SimpleCov.formatter = SimpleCov::Formatter::RcovFormatter
+
+CODE
+file 'spec/channels/application_cable/channel_spec.rb', <<-CODE
+require 'rails_helper'
+
+RSpec.describe ApplicationCable::Channel do
+end
+CODE
+file 'spec/channels/application_cable/connection_spec.rb', <<-CODE
+require 'rails_helper'
+
+RSpec.describe ApplicationCable::Connection do
+end
+CODE
+file 'spec/jobs/application_job_spec.rb', <<-CODE
+require 'rails_helper'
+
+RSpec.describe ApplicationJob do
+end
+CODE
+file 'spec/mailers/application_mailer_spec.rb', <<-CODE
+require 'rails_helper'
+
+RSpec.describe ApplicationMailer do
+end
+CODE
+
 generate 'cucumber:install'
 
 
@@ -379,6 +460,15 @@ generate 'cucumber:install'
 
 if bootstrap
   generate 'simple_form:install --bootstrap'
+  gsub_file 'config/initializers/simple_form_bootstrap.rb',
+    /^  config.button_class = '.*'$/,
+    "  config.button_class = 'btn btn-primary btn-lg btn-block'"
+  gsub_file 'config/initializers/simple_form_bootstrap.rb',
+    /has-error/,
+    'has-danger'
+  gsub_file 'config/initializers/simple_form_bootstrap.rb',
+    /^(.+:error, wrap_with: { tag: 'span', class: 'help-block)(' })$/,
+    '\1 form-control-feedback\2'
 else
   generate 'simple_form:install'
 end
@@ -394,7 +484,7 @@ end
 #gsub_file 'config/initializers/simple_form.rb',
 #  /^(\s*)#?\s*(config\.error_notification_class =) .+$/,
 #  '\1\2 \'alert alert-danger\''
-#gsub_file 'config/initializers/simple_form_bootstrap.rb',
+
 #  /^  config.wrappers :bootstrap, .*\n(    .+\n){7}    end\n  end\n/,
 #  <<-CODE
 #  config.wrappers :bootstrap, tag: 'div', class: 'form-group', error_class: 'has-error' do |b|
@@ -438,29 +528,238 @@ generate 'kaminari:config'
 
 ## Configure Devise
 generate 'devise:install', '-q'
-
 environment "config.action_mailer.default_url_options = { host: 'localhost:3000' }"
 
-generate :devise, 'User', 'name:string', 'deleted_at:datetime', 'lock_version:integer'
-#generate 'devise:views User'
+generate :devise, 'User', 'username:string', 'deleted_at:datetime:index', 'lock_version:integer'
+insert_into_file 'app/models/user.rb',
+  "  validates :username,\n    presence: true,\n    length: { in: 2..40 }\n\n" +
+    "  validates :email,\n    presence: true,\n    uniqueness: true,\n    email: true\n\n" +
+    "  validates :password,\n    presence: true,\n    confirmation: true,\n    length: {minimum: 8, maximum: 120},\n    on: :create\n\n" +
+    "  validates :password,\n    confirmation: true,\n    length: {minimum: 8, maximum: 120},\n    on: :update,\n    allow_blank: true\n\n" +
+    "  acts_as_paranoid\n\n",
+  after: "ApplicationRecord\n"
+insert_into_file 'spec/factories/users.rb',
+  "    username { Faker::Japanese::Name.name }\n    email { Faker::Internet.email }\n    password 'P@ssw0rd'",
+  after: 'factory :user do'
+
+gsub_file 'spec/models/user_spec.rb',
+  /^.*pending.*$/,
+  "  it { is_expected.to validate_presence_of(:username) }\n" +
+  "  it { is_expected.to validate_length_of(:username).is_at_least(2).is_at_most(40) }\n\n" +
+  "  it { is_expected.to validate_presence_of(:email) }\n" +
+  "  it { is_expected.to validate_uniqueness_of(:email).case_insensitive }\n\n" +
+  "  it { is_expected.to validate_presence_of(:password) }\n" +
+  "  it { is_expected.to validate_confirmation_of(:password) }\n" +
+  "  it { is_expected.to validate_length_of(:password).is_at_least(8).is_at_most(120) }\n\n"
+
+generate :controller, 'users/registrations'
+gsub_file 'app/controllers/users/registrations_controller.rb',
+  /ApplicationController/,
+  "Devise::RegistrationsController\n  include Users::RegistrationsHelper\n\n" +
+    "  before_action :configure_permitted_parameters"
+insert_into_file 'app/helpers/users/registrations_helper.rb',
+  "  protected\n\n  def configure_permitted_parameters\n" +
+    "    devise_parameter_sanitizer.permit(:sign_up) do |user_params|\n" +
+    "      user_params.permit(:username, :email, :password, :password_confirmation)\n" +
+    "    end\n  end\n",
+  after: "Users::RegistrationsHelper\n"
+file 'app/views/users/registrations/new.html.haml',
+  <<-'CODE'
+%h2
+  = t('devise.registrations.new.sign_up')
+= simple_form_for(resource, as: resource_name, url: registration_path(resource_name)) do |f|
+  = f.error_notification
+  .form-inputs
+    = f.input :username, autofocus: true
+    = f.input :email
+    = f.input :password, required: true
+    = f.input :password_confirmation, required: true
+  .form-actions
+    = f.button :submit, t('devise.registrations.new.sign_up')
+= render 'devise/shared/links'
+CODE
+file 'app/views/users/registrations/edit.html.haml',
+  <<-'CODE'
+%h2
+  = t('devise.registrations.edit.title', resource: resource.model_name.human)
+= simple_form_for(resource, as: resource_name, url: registration_path(resource_name), html: { method: :put }) do |f|
+  = f.error_notification
+  .form-inputs
+    = f.input :username, autofocus: true
+    = f.input :email
+    - if devise_mapping.confirmable? && resource.pending_reconfirmation?
+      %p
+        = t('.currently_waiting_confirmation_for_email', email: resource.unconfirmed_email)
+    = f.input :password, autocomplete: 'off', hint: t('devise.registrations.edit.leave_blank_if_you_don_t_want_to_change_it'), required: false
+    = f.input :password_confirmation, required: false
+    = f.input :current_password, hint: t('devise.registrations.edit.we_need_your_current_password_to_confirm_your_changes'), required: true
+  .form-actions
+    = f.button :submit, t('devise.registrations.edit.update')
+
+%hr
+
+%h3
+  = t('devise.registrations.edit.cancel_my_account')
+%p
+  = t('devise.registrations.edit.unhappy')
+  ?
+  = link_to(t('devise.registrations.edit.cancel_my_account'), registration_path(resource_name), data: { confirm: t('devise.registrations.edit.are_you_sure') }, method: :delete)
+  \.
+= link_to t('devise.shared.links.back'), :back
+CODE
+insert_into_file 'spec/controllers/users/registrations_controller_spec.rb',
+  "  it { is_expected.to be_a_kind_of(Devise::RegistrationsController) }\n\n" +
+  "  context 'class' do\n" +
+  "    subject { described_class }\n" +
+  "    it { is_expected.to be_include(Users::RegistrationsHelper) }\n" +
+  "  end",
+  before: "\nend"
+gsub_file 'spec/helpers/users/registrations_helper_spec.rb',
+  /^.*pending.*$/,
+  ''
+
+generate :controller, 'users/passwords'
+gsub_file 'app/controllers/users/passwords_controller.rb',
+  /ApplicationController/,
+  "Devise::PasswordsController\n  include Users::PasswordsHelper"
+file 'app/views/users/passwords/new.html.haml',
+  <<-'CODE'
+%h2
+  = t('devise.passwords.new.forgot_your_password')
+= simple_form_for(resource, as: resource_name, url: password_path(resource_name), html: { method: :post }) do |f|
+  = f.error_notification
+  .form-inputs
+    = f.input :email, autofocus: true
+  .form-actions
+    = f.button :submit, t('devise.passwords.new.send_me_reset_password_instructions')
+= render 'devise/shared/links'
+CODE
+file 'app/views/users/passwords/edit.html.haml',
+  <<-'CODE'
+%h2
+  = t('devise.passwords.edit.change_your_password')
+= simple_form_for(resource, as: resource_name, url: password_path(resource_name), html: { method: :put }) do |f|
+  = f.error_notification
+  = f.input :reset_password_token, as: :hidden
+  = f.full_error :reset_password_token
+  .form-inputs
+    = f.input :password, label: t('devise.passwords.edit.new_password'), required: true, autofocus: true
+    = f.input :password_confirmation, label: t('devise.passwords.edit.confirm_new_password'), required: true
+  .form-actions
+    = f.button :submit, t('devise.passwords.edit.change_my_password')
+= render 'devise/shared/links'
+CODE
+insert_into_file 'spec/controllers/users/passwords_controller_spec.rb',
+  "  it { is_expected.to be_a_kind_of(Devise::PasswordsController) }\n\n" +
+  "  context 'class' do\n" +
+  "    subject { described_class }\n" +
+  "    it { is_expected.to be_include(Users::PasswordsHelper) }\n" +
+  "  end",
+  before: "\nend"
+gsub_file 'spec/helpers/users/passwords_helper_spec.rb',
+  /^.*pending.*$/,
+  ''
+
+generate :controller, 'users/sessions'
+gsub_file 'app/controllers/users/sessions_controller.rb',
+  /ApplicationController/,
+  "Devise::SessionsController\n  include Users::SessionsHelper"
+file 'app/views/users/sessions/new.html.haml',
+  <<-'CODE'
+%h2
+  = t('devise.sessions.new.sign_in')
+= simple_form_for(resource, as: resource_name, url: session_path(resource_name)) do |f|
+  .form-inputs
+    = f.input :email, required: false, autofocus: true
+    = f.input :password, required: false
+    = f.input :remember_me, as: :boolean if devise_mapping.rememberable?
+  .form-actions
+    = f.button :submit, t('devise.sessions.new.sign_in')
+= render 'devise/shared/links'
+CODE
+insert_into_file 'spec/controllers/users/sessions_controller_spec.rb',
+  "  it { is_expected.to be_a_kind_of(Devise::SessionsController) }\n\n" +
+  "  context 'class' do\n" +
+  "    subject { described_class }\n" +
+  "    it { is_expected.to be_include(Users::SessionsHelper) }\n" +
+  "  end",
+  before: "\nend"
+gsub_file 'spec/helpers/users/sessions_helper_spec.rb',
+  /^.*pending.*$/,
+  ''
 
 
+gsub_file 'config/routes.rb',
+  /^( +devise_for :users.*),?$/,
+  '\1,' + "\n    controllers: {\n      sessions: 'users/sessions',\n" +
+    "  registrations: 'users/registrations',\n" +
+    "      passwords: 'users/passwords'\n    }\n"
+
+
+## Generate Home page
 generate :controller, :home, :index
+insert_into_file 'app/controllers/home_controller.rb',
+  "    redirect_to my_top_path if user_signed_in?\n",
+  after: "def index\n"
 route "root to: 'home#index'"
-gsub_file 'config/routes.rb', /^  get 'home\/index'\n$/
+gsub_file 'config/routes.rb', /^ +get 'home\/index'\n$/, ''
+gsub_file 'spec/controllers/home_controller_spec.rb',
+  / +describe .+ +it .+ +end\n +end\n\n/m,
+  "  context '#index' do\n" +
+  "    subject { get :index ; response } \n" +
+  "    it { is_expected.to be_success }\n" +
+  "    it { is_expected.to render_template(:index) }\n\n" +
+  "    context 'with logined user' do\n" +
+  "      before { sign_in FactoryGirl.create(:user) }\n" +
+  "      it { is_expected.to be_redirect }\n" +
+  "      it { is_expected.to redirect_to(my_top_path) }\n" +
+  "    end\n" +
+  "  end\n"
+gsub_file 'spec/helpers/home_helper_spec.rb',
+  /^.*pending.*$/,
+  ''
+gsub_file 'spec/views/home/index.html.haml_spec.rb',
+  /^.*pending.*$/,
+  ''
 
-### Generate My page
-#generate :controller, 'my', 'top'
-#gsub_file 'config/routes.rb', /^ +get "my\/top"$/, '  get "my" => "my#top"'
-#
-#insert_into_file 'app/controllers/my_controller.rb', "  before_filter :authenticate_user!\n", after: "ApplicationController\n"
-#
-#insert_into_file 'app/controllers/welcome_controller.rb', "\n\n  private\n\n    def redirect_to_my_top\n      redirect_to my_path if user_signed_in?\n    end\n", after: "  end"
-#insert_into_file 'app/controllers/welcome_controller.rb', "\n  before_filter :redirect_to_my_top\n\n", before: "  def index"
-#
+
+## Generate My page
+generate :controller, :my, :top
+insert_into_file 'app/controllers/my_controller.rb', "  before_action :authenticate_user!\n\n", after: "ApplicationController\n"
+gsub_file 'config/routes.rb', /^ +get 'my\/top'$/, '  get \'my(.:format)\' => \'my#top\', as: \'my_top\''
+gsub_file 'spec/controllers/my_controller_spec.rb',
+  / +describe .+ +it .+ +end\n +end\n/m,
+  'it { is_expected.to use_before_action(:authenticate_user!) }'
+gsub_file 'spec/helpers/my_helper_spec.rb',
+  /^.*pending.*$/,
+  ''
+gsub_file 'spec/views/my/top.html.haml_spec.rb',
+  /^.*pending.*$/,
+  ''
+
+file 'spec/features/sign_up_spec.rb',
+ <<-'CODE'
+require 'rails_helper'
+
+RSpec.feature "User's sign up", type: :feature do
+  scenario 'Sign up new account' do
+    @users_params = FactoryGirl.attributes_for(:user)
+
+    visit new_user_registration_path
+    fill_in      'user[username]', with: @users_params[:username]
+    fill_in      'user[email]', with: @users_params[:email]
+    fill_in      'user[password]', with: @users_params[:password]
+    fill_in      'user[password_confirmation]', with: @users_params[:password]
+    click_button I18n.t('devise.registrations.new.sign_up')
+
+    expect(page).to have_text(I18n.t('devise.registrations.signed_up'))
+    expect(page).to have_text('My#top')
+  end
+end
+CODE
 
 ## Create databases
-rake 'db:create'
+#rake 'db:create'
 
 
 run 'cp config/database.yml{,.example}'
@@ -469,301 +768,61 @@ git rm: '--cached config/database.yml'
 git rm: '--cached config/cable.yml'
 
 
+__END__
+file 'Dockerfile', <<-"CODE"
+FROM ruby
+
+ENV APP_ROOT /myapp
+ENV RAILS_ENV production
+ENV PORT 3000
+ENV DATABASE_URL mysql2://root:mysql123@db/#{app_name}?reconnect=true
+
+RUN apt-get update -qq && apt-get install -y build-essential mysql-client nodejs --no-install-recommends && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir $APP_ROOT
+ADD . $APP_ROOT
+WORKDIR $APP_ROOT
+RUN gem update && gem install bundler --no-ri --no-rdoc
+RUN bundle install --deployment --without development test --path vendor/bundle
+
+EXPOSE $PORT
+
+CMD "bundle exec rails s -p $PORT -b '0.0.0.0' -e $RAILS_ENV"
+CODE
+
+file 'docker-compose.yml', <<-"CODE"
+version: '2'
+
+services:
+  db:
+    image: mysql
+    expose:
+     - '3306'
+    environment:
+      - MYSQL_ROOT_PASSWORD=mysql123
+  redis:
+    image: redis
+  app:
+    build: .
+    volumes:
+      - .:/myapp
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DATABASE_URL='mysql2://root:mysql123@db/#{app_name}?reconnect=true'
+      - SECRET_KEY_BASE=#{SecureRandom.hex(64)}
+  web:
+    image: nginx
+      - app
+    ports:
+      - '80:80'
+      - '443:443'
+volumes:
+
+CODE
 
 __END__
-file "app/assets/stylesheets/base.css.scss", <<-CODE
-.navbar .navbar-right {
-  padding-top:   7px;
-  padding-right: 10px;
-  li {
-    margin-left: 6px;
-  }
-  .btn {
-    height: 36px;
-    line-height: 30px;
-    padding: 3px 15px;
-  }
-  .btn-primary {
-    color: white;
-  }
-  .btn-default:hover {
-    color: black;
-    background-color: #CCC;
-  }
-  .btn-primary:hover {
-    background-color: #33C;
-  }
-}
-CODE
-
-run 'rm -f app/views/layouts/application.html.erb'
-file "app/views/layouts/application.html.erb",
-  <<-CODE
-<!DOCTYPE html>
-<html lang="ja">
-  <head>
-    <meta charset="UTF-8" />
-    <title><%= t 'app_name' %></title>
-    <meta name="google" value="notranslate">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-    <%= stylesheet_link_tag    "application", media: "all", "data-turbolinks-track" => true %>
-    <%= javascript_include_tag "application", "data-turbolinks-track" => true %>
-    <%= csrf_meta_tags %>
-  </head>
-  <body>
-    <%= render file:'layouts/navbar' %>
-    <div class="container">
-      <%= yield %>
-    </div>
-  </body>
-</html>
-CODE
-file "app/views/layouts/navbar.html.erb",
-  <<-CODE
-    <nav class="navbar navbar-inverse navbar-static-top" role="navigation">
-      <div class="container-fluid">
-        <div class="navbar-header">
-          <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#bs-example-navbar-collapse-1">
-            <span class="sr-only">Toggle navigation</span>
-            <span class="icon-bar"></span>
-            <span class="icon-bar"></span>
-            <span class="icon-bar"></span>
-          </button>
-          <%= link_to root_path, class:'navbar-brand' do %>
-            <%= t 'app_name' %>
-          <% end %>
-        </div>
-        <div class="collapse navbar-collapse">
-          <ul class="nav navbar-nav">
-            <li class="active"><a href="#">Link</a></li>
-            <li><a href="#">Link</a></li>
-            <li class="dropdown">
-              <a href="#" class="dropdown-toggle" data-toggle="dropdown">Dropdown <b class="caret"></b></a>
-              <ul class="dropdown-menu">
-                <li><a href="#">Action</a></li>
-                <li><a href="#">Another action</a></li>
-                <li><a href="#">Something else here</a></li>
-                <li class="divider"></li>
-                <li><a href="#">Separated link</a></li>
-                <li class="divider"></li>
-                <li><a href="#">One more separated link</a></li>
-              </ul>
-            </li>
-          </ul>
-          <form class="navbar-form navbar-left" role="search">
-            <div class="form-group">
-              <input type="text" class="form-control" placeholder="Search">
-            </div>
-            <button type="submit" class="btn btn-default">Submit</button>
-          </form>
-          <ul class="nav navbar-nav navbar-right">
-<%- if defined? Devise -%>
-<%-   if user_signed_in? -%>
-            <li class="dropdown">
-              <a href="#" class="dropdown-toggle btn btn-default" data-toggle="dropdown">
-                <span class="glyphicon glyphicon-user"></span>
-                Dropdown
-                <b class="caret"></b>
-              </a>
-              <ul class="dropdown-menu">
-                <%= content_tag :li do %>
-                  <%= link_to edit_user_registration_path do %>
-                    <i class="fa fa-cog fa-lg"></i> <%= t 'edit_user_registration' %>
-                  <% end %>
-                <% end %>
-                <li class="divider"></li>
-                <%= content_tag :li do %>
-                  <%= link_to destroy_user_session_path, method: :delete do %>
-                    <i class="fa fa-power-off fa-lg"></i> <%= t 'sign_out' %>
-                  <% end %>
-                <% end %>
-                <li>
-                  <a href="#">Separated link</a>
-                </li>
-              </ul>
-            </li>
-<%-   else -%>
-<%-     unless controller.is_a? Devise::SessionsController -%>
-            <%= content_tag :li do %>
-              <%= link_to new_user_session_path, class:'btn btn-default' do %>
-                <i class="fa fa-sign-in fa-lg"></i> <%= t 'sign_in' %>
-              <% end %>
-            <% end %>
-<%-     end -%>
-<%-     unless controller.is_a? Devise::RegistrationsController -%>
-            <%= content_tag :li do %>
-              <%= link_to new_user_registration_path, class:'btn btn-primary' do %>
-                <i class="fa fa-edit fa-lg"></i> <%= t 'sign_up' %>
-              <% end %>
-            <% end %>
-<%-     end -%>
-<%-   end -%>
-<%- end -%>
-          </ul>
-        </div>
-      </div>
-    </nav>
-CODE
-
-
-
-## Generate My page
-generate :controller, 'my', 'top'
-gsub_file 'config/routes.rb', /^ +get "my\/top"$/, '  get "my" => "my#top"'
-
-insert_into_file 'app/controllers/my_controller.rb', "  before_filter :authenticate_user!\n", after: "ApplicationController\n"
-
-insert_into_file 'app/controllers/welcome_controller.rb', "\n\n  private\n\n    def redirect_to_my_top\n      redirect_to my_path if user_signed_in?\n    end\n", after: "  end"
-insert_into_file 'app/controllers/welcome_controller.rb', "\n  before_filter :redirect_to_my_top\n\n", before: "  def index"
-
-
-## Create databases
-rake "db:create"
-
-
-## Configure capistrano
-run 'mkdir -p misc/capistrano'
-
-inside('misc/capistrano') do
-  run 'cap install STAGES=local,staging,production'
-end
-
-gsub_file 'misc/capistrano/Capfile', /# (require 'capistrano\/rvm')/, '\1'
-gsub_file 'misc/capistrano/Capfile', /# (require 'capistrano\/bundler')/, '\1'
-gsub_file 'misc/capistrano/Capfile', /# (require 'capistrano\/rails\/assets')/, '\1'
-gsub_file 'misc/capistrano/Capfile', /# (require 'capistrano\/rails\/migrations')/, '\1'
-
-append_file 'misc/capistrano/Capfile', <<-CODE
-
-require 'capistrano/rails'
-require 'capistrano/console'
-#require "whenever/capistrano"
-CODE
-
-gsub_file 'misc/capistrano/config/deploy.rb', /(set :application,) .*/, "set :application, '#{app_name}'"
-gsub_file 'misc/capistrano/config/deploy.rb', /# (ask :branch, .*)/, '\1'
-gsub_file 'misc/capistrano/config/deploy.rb', /# (set :deploy_to,) .*/, '\1 "/var/rails/#{fetch(:application)}"'
-gsub_file 'misc/capistrano/config/deploy.rb', /# (set :scm,) .*/, '\1 :git'
-gsub_file 'misc/capistrano/config/deploy.rb', /# (set :format,) .*/, '\1 :pretty'
-gsub_file 'misc/capistrano/config/deploy.rb', /# (set :log_level,) .*/, '\1 :debug'
-gsub_file 'misc/capistrano/config/deploy.rb', /# (set :pty,) .*/, '\1 true'
-gsub_file 'misc/capistrano/config/deploy.rb', /# (set :linked_files,) .*/, '\1 %w{config/database.yml}'
-gsub_file 'misc/capistrano/config/deploy.rb', /# (set :linked_dirs,) .*/, '\1 %w{bin log tmp/pids tmp/cache tmp/sockets vendor/bundle public/system}'
-gsub_file 'misc/capistrano/config/deploy.rb', /# (set :keep_releases,) .*/, '\1 5'
-append_file 'misc/capistrano/config/deploy.rb', <<-'CODE'
-
-set :whenever_identifier, ->{ "#{fetch(:application)}_#{fetch(:stage)}" }
-
-SSHKit.config.command_map[:rake]     = "bundle exec rake"
-SSHKit.config.command_map[:rails]    = "bundle exec rails"
-SSHKit.config.command_map[:whenever] = "bundle exec whenever"
-
-set :rvm_type,         :system
-set :rvm_ruby_version, "ruby-2.1.2@#{fetch(:application)}"
-
-set :db_name, fetch(:application)
-set :db_user, 'root'
-
-set :ssh_options, {
-  keys: [File.expand_path('~/.ssh/id_rsa')],
-  forward_agent: true,
-  auth_methods: %w(publickey)
-}
-
-CODE
-
-file "misc/capistrano/lib/capistrano/tasks/#{app_name}.rake", <<-'CODE'
-namespace :deploy do
-
-  desc 'upload database.yml'
-  task :upload do
-    on roles(:app) do |host|
-      unless test "[ -f #{shared_path}/config/database.yml ]"
-        require 'erb'
-        html = ERB.new(File.read("templates/database.yml.erb")).result(binding)
-        upload!(StringIO.new(html), "#{shared_path}/config/database.yml")
-      end
-    end
-  end
-
-  desc 'add permission'
-  task :add_permission do
-    on roles(:app) do |host|
-      execute "chmod g+w -R #{release_path}"
-      execute "chmod g+w -R #{shared_path}"
-    end
-  end
-
-  after 'deploy:check:make_linked_dirs', 'deploy:upload'
-  after :finishing, 'deploy:cleanup'
-  after 'deploy:cleanup', 'deploy:add_permission'
-
-
-  desc 'upload monit config files'
-  task :upload_monitrc do
-    on roles(:app) do |host|
-      unless test "[ -f #{shared_path}/config/#{fetch(:application)}.monit.rc ]"
-        require 'erb'
-        html = ERB.new(File.read("templates/monit.rc.erb")).result(binding)
-        upload!(StringIO.new(html), "#{shared_path}/config/#{fetch(:application)}.monit.rc")
-      end
-    end
-  end
-
-  desc 'upload nginx config files'
-  task :upload_nginx_config do
-    on roles(:app) do |host|
-      unless test "[ -f #{shared_path}/config/#{fetch(:application)}.nginx.conf ]"
-        require 'erb'
-        html = ERB.new(File.read("templates/nginx.conf.erb")).result(binding)
-        upload!(StringIO.new(html), "#{shared_path}/config/#{fetch(:application)}.nginx.conf")
-      end
-    end
-  end
-
-  desc 'restart puma'
-  task :restart_puma do
-    on roles(:app) do |host|
-      execute "kill -USR2 `cat #{current_path}/tmp/pids/puma.pid`"
-    end
-  end
-
-
-  after 'deploy:finishing',           'deploy:upload_monitrc'
-  after 'deploy:upload_monitrc',      'deploy:upload_nginx_config'
-  #after 'deploy:upload_nginx_config', 'deploy:restart_puma'
-
-end
-CODE
-
-run 'mkdir -p misc/capistrano/templates/'
-
-
-file "misc/capistrano/templates/database.yml.erb", <<-'CODE'
-development: &defaults
-  adapter: mysql2
-  encoding: utf8
-  reconnect: false
-  username: <%= fetch(:db_user) || fetch(:application) %>
-  password: <%= fetch(:db_pass) || '' %>
-  database: <%= fetch(:db_name) || fetch(:application) %>
-  socket: <%=   fetch(:db_sock) || '/var/lib/mysql/mysql.sock' %>
-  pool: 5
-
-test: &test
-  <<: *defaults
-  database: <%= fetch(:db_name) || fetch(:application) %>_test
-
-staging:
-  <<: *defaults
-
-production:
-  <<: *defaults
-
-cucumber:
-  <<: *test
-CODE
-
 file "misc/capistrano/templates/monit.rc.erb", <<-'CODE'
 check process <%= fetch(:application) %> with pidfile <%= current_path %>/tmp/pids/puma.pid
   group railsapp
@@ -838,4 +897,4 @@ upstream <%= fetch(:application) %> {
   server unix:///var/lib/puma/<%= fetch(:application) %>.sock;
 }
 CODE
-
+=end
