@@ -17,6 +17,8 @@ git :init
 git add: '.'
 git commit: '-a -m "first commit."'
 
+email = `git config --get user.email`.strip
+
 
 ## Update gem source.
 gsub_file 'Gemfile', /^# (gem 'therubyracer'.*)$/, '\1'
@@ -49,6 +51,7 @@ gem_group :development, :test do
   gem 'capybara-webkit'
   gem 'database_cleaner'
   gem 'rspec-rails', '~> 3.5.0'
+  gem 'rails-controller-testing', require: false
   gem 'coderay'
   gem 'cucumber-rails', require: false
   gem 'aruba', require: false
@@ -78,6 +81,10 @@ run 'bundle install'
 
 ## Configure rails.
 gsub_file 'config/application.rb', /^# require "rails\/test_unit\/railtie"\n$/, ''
+gsub_file 'config/application.rb', /"/, "'"
+
+gsub_file 'config/environments/production.rb', /"(RAILS_LOG_TO_STDOUT)"/, '\'\1\''
+gsub_file 'config/environments/production.rb', /config.log_tags = \[ :request_id \]/, 'config.log_tags = [:request_id]'
 
 file 'config/initializers/time_zone.rb', <<-CODE
 Rails.application.config.time_zone = 'Tokyo'
@@ -146,7 +153,6 @@ CODE
 
 ## Configure rails config
 generate 'config:install'
-
 
 gsub_file 'config/database.yml',
   /^production:.*/m,
@@ -233,12 +239,6 @@ if bootstrap
     .row
       .col-sm-12
         #main_contents
-          - if notice
-            .alert.alert-info#information_area
-              = notice
-          - if alert
-            .alert.alert-danger#warning_area{role:'alert'}
-              = alert
           = content_for?(:content) ? yield(:content) : yield
     .row
       .col-sm-12
@@ -247,7 +247,7 @@ if bootstrap
 = render template: 'layouts/application'
   CODE
 
-  file 'app/assets/javascripts/grid_system_layout.coffee', <<-CODE
+  file 'app/assets/javascripts/grid_system_layout.coffee', <<-'CODE'
 jQuery(document).on 'ready page:load', ->
 
   $(window).on 'resize', ->
@@ -375,6 +375,7 @@ CODE
 file "lib/#{app_name}/version.rb", <<-CODE
 # {app_name.camelize}
 module #{app_name.camelize}
+  # VERSION
   VERSION = '0.1.0'.freeze
 end
 CODE
@@ -402,10 +403,9 @@ gsub_file 'app/assets/javascripts/application.js',
 
 ## Update test frameworks to rspec and cucumber with FactoryGirl.
 generate 'rspec:install'
-append_file 'spec/rails_helper.rb', <<-CODE
-
-Dir[Rails.root.join("spec/support/**/*.rb")].each { |f| require f }
-CODE
+gsub_file 'spec/rails_helper.rb',
+  /^\#\ (Dir\[Rails\.root\.join\('spec\/support\/\*\*\/\*\.rb'\)\]\.each\ \{\ \|f\|\ require\ f\ \})$/,
+  '\1'
 file 'spec/support/shoulda_matchers.rb', <<-CODE
 Shoulda::Matchers.configure do |config|
   config.integrate do |with|
@@ -419,6 +419,16 @@ RSpec.configure do |config|
   config.include Devise::Test::ControllerHelpers, type: :controller
   config.include Devise::Test::ControllerHelpers, type: :helper
   config.include Devise::Test::ControllerHelpers, type: :view
+end
+CODE
+file 'spec/support/rails-controller-testing.rb', <<-CODE
+RSpec.configure do |config|
+  require 'rails-controller-testing'
+  [:controller, :view, :request].each do |type|
+    config.include ::Rails::Controller::Testing::TestProcess, :type => type
+    config.include ::Rails::Controller::Testing::TemplateAssertions, :type => type
+    config.include ::Rails::Controller::Testing::Integration, :type => type
+  end
 end
 CODE
 prepend_file 'spec/rails_helper.rb', <<-CODE
@@ -529,15 +539,32 @@ generate 'kaminari:config'
 ## Configure Devise
 generate 'devise:install', '-q'
 environment "config.action_mailer.default_url_options = { host: 'localhost:3000' }"
+gsub_file 'config/initializers/devise.rb', /^  # config.timeout_in = 30.minutes$/, '  config.timeout_in = Rails.env.test? ? 10.seconds : 30.minutes'
+gsub_file 'config/initializers/devise.rb', /^  # config.remember_for = 2.weeks$/, '  config.remember_for = Rails.env.test? ? 30.seconds : 2.weeks'
+insert_into_file 'app/helpers/application_helper.rb',
+  "  def resource_name\n    :user\n  end\n\n  def resource\n    @resource ||= User.new\n  end\n\n  def devise_mapping\n    @devise_mapping ||= Devise.mappings[:user]\n  end\n",
+  before: 'end'
 
+file 'app/views/shared/_alerts.html.haml', <<-'CODE'
+- if notice
+  .alert.alert-info#information_area
+    = notice
+- if !resource.errors.empty?
+  .alert.alert-danger#warning_area{role:'alert'}
+    = devise_error_messages!
+- elsif alert
+  .alert.alert-danger#warning_area{role:'alert'}
+    = alert
+CODE
 generate :devise, 'User', 'username:string', 'deleted_at:datetime:index', 'lock_version:integer'
 insert_into_file 'app/models/user.rb',
-  "  validates :username,\n    presence: true,\n    length: { in: 2..40 }\n\n" +
-    "  validates :email,\n    presence: true,\n    uniqueness: true,\n    email: true\n\n" +
-    "  validates :password,\n    presence: true,\n    confirmation: true,\n    length: {minimum: 8, maximum: 120},\n    on: :create\n\n" +
-    "  validates :password,\n    confirmation: true,\n    length: {minimum: 8, maximum: 120},\n    on: :update,\n    allow_blank: true\n\n" +
+  "  validates :username,\n            presence: true,\n            length: { in: 2..40 }\n\n" +
+    "  validates :email,\n            presence: true,\n            uniqueness: true,\n            email: true\n\n" +
+    "  validates :password,\n            presence: true,\n            confirmation: true,\n            length: { minimum: 8, maximum: 120 },\n            on: :create\n\n" +
+    "  validates :password,\n            confirmation: true,\n            length: { minimum: 8, maximum: 120 },\n            on: :update,\n            allow_blank: true\n\n" +
     "  acts_as_paranoid\n\n",
   after: "ApplicationRecord\n"
+gsub_file 'app/models/user.rb', /(:registerable,)/, '\1 :timeoutable,'
 insert_into_file 'spec/factories/users.rb',
   "    username { Faker::Japanese::Name.name }\n    email { Faker::Internet.email }\n    password 'P@ssw0rd'",
   after: 'factory :user do'
@@ -567,8 +594,10 @@ file 'app/views/users/registrations/new.html.haml',
   <<-'CODE'
 %h2
   = t('devise.registrations.new.sign_up')
+
+= render 'shared/alerts'
+
 = simple_form_for(resource, as: resource_name, url: registration_path(resource_name)) do |f|
-  = f.error_notification
   .form-inputs
     = f.input :username, autofocus: true
     = f.input :email
@@ -582,8 +611,10 @@ file 'app/views/users/registrations/edit.html.haml',
   <<-'CODE'
 %h2
   = t('devise.registrations.edit.title', resource: resource.model_name.human)
+
+= render 'shared/alerts'
+
 = simple_form_for(resource, as: resource_name, url: registration_path(resource_name), html: { method: :put }) do |f|
-  = f.error_notification
   .form-inputs
     = f.input :username, autofocus: true
     = f.input :email
@@ -626,8 +657,10 @@ file 'app/views/users/passwords/new.html.haml',
   <<-'CODE'
 %h2
   = t('devise.passwords.new.forgot_your_password')
+
+= render 'shared/alerts'
+
 = simple_form_for(resource, as: resource_name, url: password_path(resource_name), html: { method: :post }) do |f|
-  = f.error_notification
   .form-inputs
     = f.input :email, autofocus: true
   .form-actions
@@ -638,8 +671,10 @@ file 'app/views/users/passwords/edit.html.haml',
   <<-'CODE'
 %h2
   = t('devise.passwords.edit.change_your_password')
+
+= render 'shared/alerts'
+
 = simple_form_for(resource, as: resource_name, url: password_path(resource_name), html: { method: :put }) do |f|
-  = f.error_notification
   = f.input :reset_password_token, as: :hidden
   = f.full_error :reset_password_token
   .form-inputs
@@ -668,6 +703,9 @@ file 'app/views/users/sessions/new.html.haml',
   <<-'CODE'
 %h2
   = t('devise.sessions.new.sign_in')
+
+= render 'shared/alerts'
+
 = simple_form_for(resource, as: resource_name, url: session_path(resource_name)) do |f|
   .form-inputs
     = f.input :email, required: false, autofocus: true
@@ -691,9 +729,12 @@ gsub_file 'spec/helpers/users/sessions_helper_spec.rb',
 
 gsub_file 'config/routes.rb',
   /^( +devise_for :users.*),?$/,
-  '\1,' + "\n    controllers: {\n      sessions: 'users/sessions',\n" +
-    "  registrations: 'users/registrations',\n" +
-    "      passwords: 'users/passwords'\n    }\n"
+  '\1,' + "\n" +
+    "             controllers: {\n" +
+    "               sessions: 'users/sessions',\n" +
+    "               registrations: 'users/registrations',\n" +
+    "               passwords: 'users/passwords'\n" +
+    "             }\n"
 
 
 ## Generate Home page
@@ -701,6 +742,9 @@ generate :controller, :home, :index
 insert_into_file 'app/controllers/home_controller.rb',
   "    redirect_to my_top_path if user_signed_in?\n",
   after: "def index\n"
+insert_into_file 'app/views/home/index.html.haml',
+  "= render 'shared/alerts'\n\n",
+  before: '%p '
 route "root to: 'home#index'"
 gsub_file 'config/routes.rb', /^ +get 'home\/index'\n$/, ''
 gsub_file 'spec/controllers/home_controller_spec.rb',
@@ -726,6 +770,9 @@ gsub_file 'spec/views/home/index.html.haml_spec.rb',
 ## Generate My page
 generate :controller, :my, :top
 insert_into_file 'app/controllers/my_controller.rb', "  before_action :authenticate_user!\n\n", after: "ApplicationController\n"
+insert_into_file 'app/views/my/top.html.haml',
+  "= render 'shared/alerts'\n\n",
+  before: '%p '
 gsub_file 'config/routes.rb', /^ +get 'my\/top'$/, '  get \'my(.:format)\' => \'my#top\', as: \'my_top\''
 gsub_file 'spec/controllers/my_controller_spec.rb',
   / +describe .+ +it .+ +end\n +end\n/m,
@@ -760,6 +807,702 @@ CODE
 
 ## Create databases
 #rake 'db:create'
+
+
+prepend_file 'app/controllers/application_controller.rb', <<-CODE
+# ApplicationController
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+prepend_file 'app/controllers/home_controller.rb', <<-CODE
+# HomeController
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+prepend_file 'app/controllers/my_controller.rb', <<-CODE
+# MyController
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+prepend_file 'app/controllers/users/passwords_controller.rb', <<-CODE
+# Users::PasswordsController
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+prepend_file 'app/controllers/users/registrations_controller.rb', <<-CODE
+# Users::RegistrationsController
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+prepend_file 'app/controllers/users/sessions_controller.rb', <<-CODE
+# Users::SessionsController
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+prepend_file 'app/helpers/application_helper.rb', <<-CODE
+# ApplicationHelper
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+prepend_file 'app/helpers/home_helper.rb', <<-CODE
+# HomeHelper
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+prepend_file 'app/helpers/my_helper.rb', <<-CODE
+# MyHelper
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+prepend_file 'app/helpers/users/passwords_helper.rb', <<-CODE
+# Users::PasswordsHelper
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+prepend_file 'app/helpers/users/registrations_helper.rb', <<-CODE
+# Users::RegistrationsHelper
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+prepend_file 'app/helpers/users/sessions_helper.rb', <<-CODE
+# Users::SessionsHelper
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+prepend_file 'app/mailers/application_mailer.rb', <<-CODE
+# ApplicationMailer
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+prepend_file 'app/models/application_record.rb', <<-CODE
+# ApplicationRecord
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+prepend_file 'app/models/user.rb', <<-CODE
+# User
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+prepend_file 'config/application.rb', <<-CODE
+# Application
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+gsub_file 'config/application.rb', /  class Application < Rails::Application\n/, <<-CODE
+  # TemplateSample::Application
+  #
+  # @since 0.1.0
+  # @author #{email}
+  #
+  class Application < Rails::Application
+CODE
+prepend_file 'app/channels/application_cable/channel.rb', <<-CODE
+# ApplicationCable
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+gsub_file 'app/channels/application_cable/channel.rb',
+  /    class Channel < ActionCable::Channel::Base\n/,
+  <<-CODE
+  # ApplicationCable::Channel
+  #
+  # @since 0.1.0
+  # @author #{email}
+  #
+  class Channel < ActionCable::Channel::Base
+CODE
+prepend_file 'app/channels/application_cable/connection.rb', <<-CODE
+# ApplicationCable
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+gsub_file 'app/channels/application_cable/connection.rb',
+  /  class Connection < ActionCable::Connection::Base\n/,
+  <<-CODE
+  # ApplicationCable::Connection
+  #
+  # @since 0.1.0
+  # @author #{email}
+  #
+  class Connection < ActionCable::Connection::Base
+CODE
+prepend_file 'app/jobs/application_job.rb', <<-CODE
+# ApplicationJob
+#
+# @since 0.1.0
+# @author #{email}
+#
+CODE
+
+file '.rubocop.yml', <<-CODE
+AllCops:
+  Exclude:
+    - 'Gemfile'
+    - 'Rakefile'
+    - 'db/schema.rb'
+    - 'vendor/**/*'
+    # for Devise
+    - 'config/initializers/devise.rb'
+    - 'db/migrate/*_devise_create_users.rb'
+    # for SimpleForm
+    - 'config/initializers/simple_form.rb'
+    # for Puma
+    - 'config/puma.rb'
+    # for Cucumber
+    - 'script/cucumber'
+    - 'features/**/*'
+    - 'lib/tasks/cucumber.rake'
+    # for RSpec
+    - 'spec/**/*'
+
+Metrics/LineLength:
+  Max: 120
+
+Style/ClassAndModuleChildren:
+  Enabled: false
+CODE
+
+file 'features/support/database_cleaner.rb', <<-CODE
+begin
+  require 'database_cleaner'
+  require 'database_cleaner/cucumber'
+
+  DatabaseCleaner.strategy = :truncation
+rescue NameError
+  raise "You need to add database_cleaner to your Gemfile (in the :test group) if you wish to use it."
+end
+
+Around do |scenario, block|
+  DatabaseCleaner.cleaning(&block)
+end
+CODE
+file 'features/support/names.rb', <<-'CODE'
+def page_name_to_path(page_name, options = {})
+  case page_name
+  when 'トップページ'
+    root_path
+  when 'ログインページ'
+    new_user_session_path
+  when 'パスワード再設定メール送信ページ'
+    new_user_password_path
+  when 'パスワード再設定ページ'
+    edit_user_password_path
+  when 'マイトップページ'
+    my_top_path
+  else
+    raise "Unknown page name '#{page_name}'."
+  end
+end
+
+def form_name_to_id(form_name)
+  case form_name
+  when 'パスワード再設定フォーム'
+    '#new_user'
+  when 'パスワード再設定メール送信フォーム'
+    '#new_user'
+  when 'ログインフォーム'
+    '#new_user'
+  else
+    raise "Unknown form name '#{form_name}'."
+  end
+end
+
+def area_name_to_id(area_name)
+  case area_name
+  when 'インフォメーションエリア'
+    '#information_area'
+  when 'ワーニングエリア'
+    '#warning_area'
+  else
+    raise "Unknown form name '#{area_name}'."
+  end
+end
+
+def menu_name_to_id(menu_name)
+  case menu_name
+  when 'ドロップダウンメニュー'
+    '#dropdownMenu2'
+  else
+    raise "Unknown form name '#{menu_name}'."
+  end
+end
+CODE
+file 'features/support/headless.rb', <<-CODE
+#require 'headless'
+#require 'capybara/poltergeist'
+#
+#headless = Headless.new
+#headless.start
+#
+#Capybara.default_driver = :poltergeist
+CODE
+file 'features/step_definitions/web_steps.rb', <<-'CODE'
+When(/^"(.*)"を表示する$/)do |page_name|
+  visit page_name_to_path(page_name)
+end
+
+Then(/スクリーンショットを撮って\"(.+)\"に保存/)do |filename|
+  page.save_screenshot "./#{filename}"
+end
+
+When(/^"([^"]*)"に下記を入力する:$/) do |form_name, table|
+  within(form_name_to_id(form_name)) do
+    table.hashes.each do |set|
+      fill_in set['field'], with: set['value']
+    end
+  end
+end
+
+Given(/^下記のユーザーが登録されている:$/) do |table|
+  table.hashes.each do |user_params|
+    User.create!(user_params)
+  end
+end
+
+Then(/^"([^"]*)"が表示されている$/) do |page_name|
+  uri = URI.parse(current_url)
+  expect(uri.path).to eq page_name_to_path(page_name)
+end
+
+When(/^"([^"]*)"の"([^"]*)"をチェック(する|しない)$/) do |form_name, field_name, check|
+  within(form_name_to_id(form_name)) do
+    if check == 'する'
+      check(field_name)
+    else
+      uncheck(field_name)
+    end
+  end
+end
+
+When(/^"([^"]+)"をクリックする$/) do |label|
+  if label =~ /メニュー$/
+    target = menu_name_to_id(label)
+    find(target).click
+  else
+    click_on label
+  end
+end
+
+Then(/^"([^"]*)"に下記が表示されている:$/) do |area_name, string|
+  within(area_name_to_id(area_name)) do
+    expect(page).to have_content string
+  end
+end
+
+Given(/^下記の認証情報でログインする$/) do |table|
+  user_param = table.hashes.first
+  step '"トップページ"を表示する'
+  step '"ログイン"をクリックする'
+  step '"ログインフォーム"に下記を入力する:', table(%{
+    | field             | value                     |
+    | user[email]       | #{user_param['email']}    |
+    | user[password]    | #{user_param['password']} |
+  })
+  step '"ログインフォーム"の"user[remember_me]"をチェックしない'
+  step '"ログイン"をクリックする'
+  step '"マイトップページ"が表示されている'
+end
+
+Given(/^ログアウトする$/) do
+  step '"ドロップダウンメニュー"をクリックする'
+  step '"ログアウト"をクリックする'
+  step '"トップページ"が表示されている'
+end
+
+Given(/^ログインの記憶時間が"(\d+)秒"となっている$/) do |sec|
+  expect(Devise.remember_for).to eq ActiveSupport::Duration.new(sec.to_i, [[:seconds, sec.to_i]])
+end
+
+Given(/^セッションのタイムアウト時間が"(\d+)秒"となっている$/) do |sec|
+  expect(Devise.timeout_in).to eq ActiveSupport::Duration.new(sec.to_i, [[:seconds, sec.to_i]])
+end
+
+Given(/^ログイン失敗時のロック回数が"(\d+)回"となっている$/) do |num|
+  expect(Devise.maximum_attempts).to eq num.to_i
+end
+
+When(/^"(\d+)秒"待つ$/) do |sec|
+  sleep(sec.to_i)
+end
+
+Then(/^下記のメールを受信している:$/) do |table|
+  @last_mail ||= ActionMailer::Base.deliveries.last
+  table.hashes.each do |mail_params|
+    val = @last_mail.send(mail_params['field'].to_sym)
+    if val.is_a?(Array)
+      expect(val).to include mail_params['value']
+    else
+      expect(val).to eq mail_params['value']
+    end
+  end
+end
+
+Then(/^メール本文が下記の正規表現にマッチする:$/) do |string|
+  @last_mail ||= ActionMailer::Base.deliveries.last
+  expect(@last_mail.body.to_s).to match(/^#{string}/)
+end
+
+When(/^メールキューを空にする$/) do
+  ActionMailer::Base.deliveries.clear
+end
+
+When(/^メールに含まれているパスワード再設定用URLを開く$/) do
+  @last_mail ||= ActionMailer::Base.deliveries.last
+  path = @last_mail.body.to_s.match(/"http.+(\/users\/password\/edit\?reset_password_token.+)"/)[1]
+  visit path
+end
+
+Then(/^メールキューは空になっている$/) do
+  expect(ActionMailer::Base.deliveries.empty?).to be_truthy
+end
+
+Then(/^"([^"]*)"の"([^"]*)"がハイライトされ、下記のエラーが表示されている:$/) do |form_name, field_name, message|
+  within(form_name_to_id(form_name)) do
+
+  end
+end
+CODE
+
+file 'features/login.feature', <<-CODE
+# language:ja
+
+機能: ログイン／ログアウト
+
+背景:
+  前提 下記のユーザーが登録されている:
+    | username  | email                | password |
+    | Test User | testuser@example.com | testpass |
+
+
+シナリオ: 管理者はトップページから正しい認証情報を使ってログインすることができる
+  もし "トップページ"を表示する
+  かつ"ログイン"をクリックする
+  ならば "ログインページ"が表示されている
+  もし "ログインフォーム"に下記を入力する:
+    | field             | value                |
+    | user[email]       | testuser@example.com |
+    | user[password]    | testpass             |
+  かつ "ログインフォーム"の"user[remember_me]"をチェックしない
+  かつ "ログイン"をクリックする
+  ならば "マイトップページ"が表示されている
+  かつ "インフォメーションエリア"に下記が表示されている:
+    """
+    ログインしました。
+    """
+
+
+シナリオ: 未登録者はトップページから未登録の認証情報を使ってログインすることができない
+  もし "トップページ"を表示する
+  かつ"ログイン"をクリックする
+  ならば "ログインページ"が表示されている
+  もし "ログインフォーム"に下記を入力する:
+    | field          | value                   |
+    | user[email]    | unknownuser@example.com |
+    | user[password] | testpass                |
+  かつ "ログインフォーム"の"user[remember_me]"をチェックしない
+  かつ "ログイン"をクリックする
+  ならば "ログインページ"が表示されている
+  かつ "ワーニングエリア"に下記が表示されている:
+    """
+    メールアドレスまたはパスワードが違います。
+    """
+
+
+シナリオ: 管理者はトップページから誤った認証情報を使ってログインすることができない
+  もし "トップページ"を表示する
+  かつ"ログイン"をクリックする
+  ならば "ログインページ"が表示されている
+  もし "ログインフォーム"に下記を入力する:
+    | field          | value                |
+    | user[email]    | testuser@example.com |
+    | user[password] | unknown              |
+  かつ "ログインフォーム"の"user[remember_me]"をチェックしない
+  かつ "ログイン"をクリックする
+  ならば "ログインページ"が表示されている
+  かつ "ワーニングエリア"に下記が表示されている:
+    """
+    メールアドレスまたはパスワードが違います。
+    """
+
+#ならば スクリーンショットを撮って"screen_shot.png"に保存
+
+
+シナリオ: 管理者はログイン後にログアウトすることができる
+  前提 下記の認証情報でログインする
+    | username  | email                | password |
+    | Test User | testuser@example.com | testpass |
+  もし "ドロップダウンメニュー"をクリックする
+  かつ "ログアウト"をクリックする
+  ならば "トップページ"が表示されている
+  かつ "インフォメーションエリア"に下記が表示されている:
+    """
+    ログアウトしました。
+    """
+CODE
+file 'features/remember_login_info.feature', <<-CODE
+# language:ja
+
+機能: ログイン情報を記憶する
+
+背景:
+  前提 下記のユーザーが登録されている:
+    | username  | email                | password |
+    | Test User | testuser@example.com | testpass |
+  かつ セッションのタイムアウト時間が"10秒"となっている
+  かつ ログインの記憶時間が"30秒"となっている
+
+
+シナリオ: 管理者はトップページから正しい認証情報を使ってログイン情報を保存してログインすることができる
+  もし "トップページ"を表示する
+  かつ"ログイン"をクリックする
+  ならば "ログインページ"が表示されている
+  もし "ログインフォーム"に下記を入力する:
+    | field          | value                |
+    | user[email]    | testuser@example.com |
+    | user[password] | testpass             |
+  かつ "ログインフォーム"の"user[remember_me]"をチェックする
+  かつ "ログイン"をクリックする
+  ならば "マイトップページ"が表示されている
+  もし ログアウトする
+  かつ "トップページ"を表示する
+  #ならば スクリーンショットを撮って"screen_shot.png"に保存
+CODE
+file 'features/password_reminder.feature', <<-CODE
+# language:ja
+
+機能: パスワード再発行
+
+背景:
+  前提 下記のユーザーが登録されている:
+    | username  | email                | password |
+    | TEST USER | testuser@example.com | testpass |
+
+シナリオ: 管理者はパスワード再設定メールからパスワードを再設定することができる
+  前提 メールキューを空にする
+  もし "トップページ"を表示する
+  かつ "ログイン"をクリックする
+  ならば "ログインページ"が表示されている
+  もし "パスワードを忘れましたか?"をクリックする
+  ならば "パスワード再設定メール送信ページ"が表示されている
+  もし "パスワード再設定メール送信フォーム"に下記を入力する:
+    | field          | value                |
+    | user[email]    | testuser@example.com |
+  かつ "パスワードの再設定方法を送信する"をクリックする
+  ならば "ログインページ"が表示されている
+  かつ "インフォメーションエリア"に下記が表示されている:
+    """
+    パスワードの再設定について数分以内にメールでご連絡いたします。
+    """
+  もし メールに含まれているパスワード再設定用URLを開く
+  ならば "パスワード再設定ページ"が表示されている
+  もし "パスワード再設定メール送信フォーム"に下記を入力する:
+    | field                       | value       |
+    | user[password]              | newpassword |
+    | user[password_confirmation] | newpassword |
+  かつ "パスワードを変更する"をクリックする
+  ならば "マイトップページ"が表示されている
+  もし ログアウトする
+  ならば "トップページ"が表示されている
+  かつ "ログイン"をクリックする
+  ならば "ログインページ"が表示されている
+  もし "ログインフォーム"に下記を入力する:
+    | field          | value                |
+    | user[email]    | testuser@example.com |
+    | user[password] | newpassword          |
+  かつ "ログインフォーム"の"user[remember_me]"をチェックする
+  かつ "ログイン"をクリックする
+  ならば "マイトップページ"が表示されている
+
+シナリオ: 管理者がパスワード再設定メール送信フォームに誤ったメールアドレス投入した場合
+  前提 メールキューを空にする
+  もし "トップページ"を表示する
+  かつ "ログイン"をクリックする
+  ならば "ログインページ"が表示されている
+  もし "パスワードを忘れましたか?"をクリックする
+  ならば "パスワード再設定メール送信ページ"が表示されている
+  もし "パスワード再設定メール送信フォーム"に下記を入力する:
+    | field          | value                |
+    | user[email]    | unknown@example.com |
+  かつ "パスワードの再設定方法を送信する"をクリックする
+  ならば "ワーニングエリア"に下記が表示されている:
+    """
+    1 件のエラーが発生したため ユーザ は保存されませんでした: メールアドレスは見つかりませんでした。
+    """
+  かつ メールキューは空になっている
+  かつ "パスワード再設定メール送信フォーム"の"メールアドレスフィールド"がハイライトされ、下記のエラーが表示されている:
+    """
+    は見つかりませんでした。
+    """
+
+シナリオ: 管理者がパスワード再設定メール送信フォームにメールアドレス投入せずに送信した場合エラーになる
+  前提 メールキューを空にする
+  もし "トップページ"を表示する
+  かつ "ログイン"をクリックする
+  ならば "ログインページ"が表示されている
+  もし "パスワードを忘れましたか?"をクリックする
+  ならば "パスワード再設定メール送信ページ"が表示されている
+  もし "パスワードの再設定方法を送信する"をクリックする
+  ならば "ワーニングエリア"に下記が表示されている:
+    """
+    1 件のエラーが発生したため ユーザ は保存されませんでした: メールアドレスを入力してください
+    """
+  かつ メールキューは空になっている
+  かつ "パスワード再設定メール送信フォーム"の"メールアドレスフィールド"がハイライトされ、下記のエラーが表示されている:
+    """
+    を入力してください
+    """
+
+シナリオ: 管理者はパスワード再設定メールからパスワードを再設定するときに確認入力を誤った場合、エラーが表示される
+  前提 メールキューを空にする
+  もし "トップページ"を表示する
+  かつ "ログイン"をクリックする
+  ならば "ログインページ"が表示されている
+  もし "パスワードを忘れましたか?"をクリックする
+  ならば "パスワード再設定メール送信ページ"が表示されている
+  もし "パスワード再設定メール送信フォーム"に下記を入力する:
+    | field          | value                |
+    | user[email]    | testuser@example.com |
+  かつ "パスワードの再設定方法を送信する"をクリックする
+  ならば "ログインページ"が表示されている
+  かつ "インフォメーションエリア"に下記が表示されている:
+    """
+    パスワードの再設定について数分以内にメールでご連絡いたします。
+    """
+  もし メールに含まれているパスワード再設定用URLを開く
+  ならば "パスワード再設定ページ"が表示されている
+  もし "パスワード再設定メール送信フォーム"に下記を入力する:
+    | field                       | value       |
+    | user[password]              | newpassword |
+    | user[password_confirmation] | hogehoge    |
+  かつ "パスワードを変更する"をクリックする
+  ならば "ワーニングエリア"に下記が表示されている:
+    """
+    2 件のエラーが発生したため ユーザ は保存されませんでした: 確認用パスワードとパスワードの入力が一致しません確認用パスワードとパスワードの入力が一致しません
+    """
+CODE
+file 'features/session_timeout.feature', <<-CODE
+# language:ja
+
+機能: セッションのタイムアウト
+
+背景:
+  前提 下記のユーザーが登録されている:
+    | username  | email                | password |
+    | Test User | testuser@example.com | testpass |
+  かつ セッションのタイムアウト時間が"10秒"となっている
+
+シナリオ: 管理者はトップページから正しい認証情報を使ってログインし、10秒以上放置すると自動ログアウトしている
+  前提 下記の認証情報でログインする
+    | email                | password |
+    | testuser@example.com | testpass |
+  もし "15秒"待つ
+  かつ "マイトップページ"を表示する
+  ならば "ログインページ"が表示されている
+  かつ "ワーニングエリア"に下記が表示されている:
+    """
+    セッションがタイムアウトしました。もう一度ログインしてください。
+    """
+CODE
+
+append_file 'Rakefile', <<-'EOS'
+
+default_tasks = []
+
+begin
+  require 'rspec/core/rake_task'
+  default_tasks << :spec
+rescue LoadError
+end
+
+begin
+  require 'cucumber/rake/task'
+  default_tasks << :cucumber
+rescue LoadError
+end
+
+begin
+  require 'yard'
+  require 'yard/rake/yardoc_task'
+  YARD::Rake::YardocTask.new do |t|
+    t.files   = ['app/controllers/**/*.rb','app/helpers/**/*.rb', 'app/mailers/**/*.rb', 'app/models/**/*.rb', 'lib/**/*.rb']
+    t.options = []
+    t.options << '--debug' << '--verbose' if $trace
+  end
+  default_tasks << :yard
+rescue LoadError
+end
+
+begin
+  require 'rubocop/rake_task'
+  RuboCop::RakeTask.new
+  default_tasks << :rubocop
+rescue LoadError
+end
+
+begin
+  require 'brakeman'
+
+  desc "Check your code with Brakeman"
+  task :brakeman do
+    result = Brakeman.run app_path: '.', print_report: true
+    exit Brakeman::Warnings_Found_Exit_Code unless result.filtered_warnings.empty?
+  end
+  default_tasks << :brakeman
+rescue LoadError
+end
+
+desc 'Generate docs'
+task :docs do
+  system 'rm -rf docs'
+  system 'rspec spec -fh -o docs/rspec/index.html'
+  system 'mv coverage docs'
+  system 'mkdir -p docs/cucumber/'
+  system 'cucumber features -f html -o docs/cucumber/index.html'
+  system 'yardoc -o docs/yard'
+  system 'rubocop -fh -o docs/rubocop/index.html'
+  system 'mkdir docs/brakeman/'
+  system 'brakeman -f html -o docs/brakeman/index.html'
+end
+
+task default: default_tasks
+EOS
 
 
 run 'cp config/database.yml{,.example}'

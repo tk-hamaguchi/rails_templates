@@ -1,7 +1,7 @@
 rails_templates
 ===============
 
-Application templates for Rails4
+Application templates for Rails5
 
 
  
@@ -15,27 +15,24 @@ $ rails new {app_name} -T --skip-bundle -m {template_url}
 For example...
 
 ```
-$ rails new my_app -T --skip-bundle -m https://raw.github.com/tk-hamaguchi/rails_templates/master/plain_template.rb
+$ rails new my_app -T --skip-bundle -m https://raw.github.com/tk-hamaguchi/rails_templates/master/rails5_template.rb
 ```
 
 
-Type of templates
+Type of templatesv
 --------
 
-|                     | plain_template      | metro_template      | bootstrap_template  |
-| ------------------- |:-------------------:|:-------------------:|:-------------------:|
-| Authentication      | Devise              | Devise              | Devise              |
-| OmniAuth            | none                | none                | none                |
-| Form Builder        | SimpleForm          | SimpleForm          | SimpleForm          |
-| Pagenation          | Kaminari            | Kaminari            | Kaminari            |
-| User Configurator   | RailsConfig         | RailsConfig         | RailsConfig         |
-| Logical deletion    | Paranoia            | Paranoia            | Paranoia            |
-| Test Solution       | Guard + Spring      | Guard + Spring      | Guard + Spring      |
-| Test Frameworks     | RSpec + Cucumber    | RSpec + Cucumber    | RSpec + Cucumber    |
-| Test Data Generator | Faker + FactoryGirl | Faker + FactoryGirl | Faker + FactoryGirl |
-| Application Server  | Puma                | Thin or Unicorn     | Puma                |
-| Deploy Tools        | Capistrano          | Capistrano          | Capistrano          |
-| Themes              | none                | TwitterBootstrap    | Bootstrap3          |
+|                     |        Gems         |
+| ------------------- |:-------------------:|
+| Authentication      | Devise              |
+| Form Builder        | SimpleForm          |
+| Pagenation          | Kaminari            |
+| User Configurator   | Config              |
+| Logical deletion    | Paranoia            |
+| Test Frameworks     | RSpec + Cucumber    |
+| Test Data Generator | Faker + FactoryGirl |
+| Application Server  | Puma                |
+| Themes              | Bootstrap4          |
 
 
 License
