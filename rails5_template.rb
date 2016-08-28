@@ -48,23 +48,26 @@ if bootstrap
 end
 
 gem_group :development, :test do
-  gem 'capybara-webkit'
-  gem 'database_cleaner'
+  gem 'pry-byebug'
+
+  gem 'timecop'
+
   gem 'rspec-rails', '~> 3.5.0'
   gem 'rails-controller-testing', require: false
-  gem 'coderay'
-  gem 'cucumber-rails', require: false
-  gem 'aruba', require: false
-  gem 'poltergeist'
-  gem 'headless'
-  gem 'letter_opener'
-  gem 'database_cleaner'
   gem 'factory_girl_rails'
-  gem 'simplecov'
-  gem 'simplecov-rcov'
   gem 'faker'
   gem 'faker-japanese'
   gem 'shoulda-matchers'
+  gem 'simplecov'
+  gem 'simplecov-rcov'
+
+  gem 'coderay'
+
+  gem 'cucumber-rails', require: false
+  gem 'database_cleaner'
+  gem 'aruba', require: false
+  gem 'poltergeist'
+  gem 'letter_opener'
 end
 
 gem_group :development do
@@ -142,6 +145,7 @@ config/cable.yml
 coverage
 CODE
 
+run 'figaro install'
 
 ## Convert to haml
 run <<-CODE
@@ -156,7 +160,7 @@ generate 'config:install'
 
 gsub_file 'config/database.yml',
   /^production:.*/m,
-  "production:\n  url: <%= ENV['DATABASE_URL'] %>"
+  "production:\n  url: <%= ENV['DATABASE_URL'] %>\n"
 
 
 ## Configure bootstrap-sass
@@ -539,8 +543,15 @@ generate 'kaminari:config'
 ## Configure Devise
 generate 'devise:install', '-q'
 environment "config.action_mailer.default_url_options = { host: 'localhost:3000' }"
-gsub_file 'config/initializers/devise.rb', /^  # config.timeout_in = 30.minutes$/, '  config.timeout_in = Rails.env.test? ? 10.seconds : 30.minutes'
-gsub_file 'config/initializers/devise.rb', /^  # config.remember_for = 2.weeks$/, '  config.remember_for = Rails.env.test? ? 30.seconds : 2.weeks'
+gsub_file 'config/initializers/devise.rb',
+  /^  # config.timeout_in = 30.minutes$/,
+  '  config.timeout_in = Rails.env.test? ? 10.seconds : 30.minutes'
+gsub_file 'config/initializers/devise.rb',
+  /^  # config.remember_for = 2.weeks$/,
+  '  config.remember_for = Rails.env.test? ? 30.seconds : 2.weeks'
+gsub_file 'config/initializers/devise.rb',
+  /^( +)# (config.secret_key = '.+')$/,
+  '\1\2'
 insert_into_file 'app/helpers/application_helper.rb',
   "  def resource_name\n    :user\n  end\n\n  def resource\n    @resource ||= User.new\n  end\n\n  def devise_mapping\n    @devise_mapping ||= Devise.mappings[:user]\n  end\n",
   before: 'end'
@@ -564,10 +575,12 @@ insert_into_file 'app/models/user.rb',
     "  validates :password,\n            confirmation: true,\n            length: { minimum: 8, maximum: 120 },\n            on: :update,\n            allow_blank: true\n\n" +
     "  acts_as_paranoid\n\n",
   after: "ApplicationRecord\n"
-gsub_file 'app/models/user.rb', /(:registerable,)/, '\1 :timeoutable,'
+gsub_file 'app/models/user.rb',
+  /(:registerable,)/,
+  '\1 :timeoutable,'
 insert_into_file 'spec/factories/users.rb',
   "    username { Faker::Japanese::Name.name }\n    email { Faker::Internet.email }\n    password 'P@ssw0rd'",
-  after: 'factory :user do'
+  after: "factory :user do\n"
 
 gsub_file 'spec/models/user_spec.rb',
   /^.*pending.*$/,
@@ -1064,14 +1077,9 @@ def menu_name_to_id(menu_name)
   end
 end
 CODE
-file 'features/support/headless.rb', <<-CODE
-#require 'headless'
-#require 'capybara/poltergeist'
-#
-#headless = Headless.new
-#headless.start
-#
-#Capybara.default_driver = :poltergeist
+file 'features/support/driver.rb', <<-CODE
+require 'capybara/poltergeist'
+Capybara.default_driver = :poltergeist
 CODE
 file 'features/step_definitions/web_steps.rb', <<-'CODE'
 When(/^"(.*)"を表示する$/)do |page_name|
@@ -1085,6 +1093,13 @@ end
 When(/^"([^"]*)"に下記を入力する:$/) do |form_name, table|
   within(form_name_to_id(form_name)) do
     table.hashes.each do |set|
+      i = 0
+      begin
+        find(set['field'])
+      rescue => e
+        raise e if i > 3
+        i += 1
+      end
       fill_in set['field'], with: set['value']
     end
   end
@@ -1414,7 +1429,7 @@ file 'features/password_reminder.feature', <<-CODE
   かつ "パスワードを変更する"をクリックする
   ならば "ワーニングエリア"に下記が表示されている:
     """
-    2 件のエラーが発生したため ユーザ は保存されませんでした: 確認用パスワードとパスワードの入力が一致しません確認用パスワードとパスワードの入力が一致しません
+    2 件のエラーが発生したため ユーザ は保存されませんでした: 確認用パスワードとパスワードの入力が一致しません 確認用パスワードとパスワードの入力が一致しません
     """
 CODE
 file 'features/session_timeout.feature', <<-CODE
@@ -1511,7 +1526,6 @@ git rm: '--cached config/database.yml'
 git rm: '--cached config/cable.yml'
 
 
-__END__
 file 'Dockerfile', <<-"CODE"
 FROM ruby
 
@@ -1522,17 +1536,21 @@ ENV DATABASE_URL mysql2://root:mysql123@db/#{app_name}?reconnect=true
 
 RUN apt-get update -qq && apt-get install -y build-essential mysql-client nodejs --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir $APP_ROOT
-ADD . $APP_ROOT
-WORKDIR $APP_ROOT
 RUN gem update && gem install bundler --no-ri --no-rdoc
-RUN bundle install --deployment --without development test --path vendor/bundle
+
+RUN mkdir $APP_ROOT
+
+WORKDIR $APP_ROOT
+COPY Gemfile* ./
+
+RUN bundle install --deployment --without development test
+
+ADD . $APP_ROOT
 
 EXPOSE $PORT
 
-CMD "bundle exec rails s -p $PORT -b '0.0.0.0' -e $RAILS_ENV"
+CMD bundle exec rails s -p $PORT -b '0.0.0.0' -e $RAILS_ENV
 CODE
-
 file 'docker-compose.yml', <<-"CODE"
 version: '2'
 
@@ -1547,22 +1565,21 @@ services:
     image: redis
   app:
     build: .
-    volumes:
-      - .:/myapp
     depends_on:
       - db
       - redis
+    ports:
+      - '3000:3000'
     environment:
-      - DATABASE_URL='mysql2://root:mysql123@db/#{app_name}?reconnect=true'
+      - DATABASE_URL=mysql2://root:mysql123@db/#{app_name}?reconnect=true
       - SECRET_KEY_BASE=#{SecureRandom.hex(64)}
   web:
     image: nginx
+    depends_on:
       - app
     ports:
       - '80:80'
       - '443:443'
-volumes:
-
 CODE
 
 __END__
