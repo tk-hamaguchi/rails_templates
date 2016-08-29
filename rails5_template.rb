@@ -1532,10 +1532,15 @@ FROM ruby
 ENV APP_ROOT /myapp
 ENV RAILS_ENV production
 ENV PORT 3000
-ENV DATABASE_URL mysql2://root:mysql123@db/#{app_name}?reconnect=true
+ENV DATABASE_URL mysql2://root:mysql123@db/template_sample?reconnect=true
+ENV TZ JST-9
+ENV RAILS_SERVE_STATIC_FILES true
+ENV RAILS_LOG_TO_STDOUT true
+ENV RAILS_MAX_THREADS 5
+ENV WEB_CONCURRENCY 2
 
-RUN apt-get update -qq && apt-get install -y build-essential mysql-client nodejs --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update -qq && apt-get install -y build-essential mysql-client postgresql-client nodejs --no-install-recommends && rm -rf /var/lib/apt/lists/*
 RUN gem update && gem install bundler --no-ri --no-rdoc
 
 RUN mkdir $APP_ROOT
@@ -1571,8 +1576,9 @@ services:
     ports:
       - '3000:3000'
     environment:
-      - DATABASE_URL=mysql2://root:mysql123@db/#{app_name}?reconnect=true
-      - SECRET_KEY_BASE=#{SecureRandom.hex(64)}
+      - DATABASE_URL=mysql2://root:mysql123@db/template_sample?reconnect=true
+      - SECRET_KEY_BASE=fbf00688f4993a0ddd3f38c9d9f6dab51bf4b9e82a5f195cad1fe8e6c97def64db8901a0c5140e3e663249c0e09e7632e4b4c69511af2a07db296f6ee7be4271
+      - APP_ROOT=/myapp
   web:
     image: nginx
     depends_on:
