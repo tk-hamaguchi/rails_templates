@@ -10,7 +10,7 @@
 
 
 ## Bootstrap?
-bootstrap = yes?('Do you want oto use bootstrap?')
+bootstrap = yes?('Do you want to use bootstrap?')
 
 ## Create and initialize Git repository.
 git :init
@@ -549,6 +549,8 @@ generate 'kaminari:config'
 ## Configure Devise
 generate 'devise:install', '-q'
 environment "config.action_mailer.default_url_options = { host: 'localhost:3000' }"
+environment 'config.action_mailer.delivery_method = :letter_opener',
+  env: 'development'
 gsub_file 'config/initializers/devise.rb',
   /^  # config.timeout_in = 30.minutes$/,
   '  config.timeout_in = Rails.env.test? ? 10.seconds : 30.minutes'
