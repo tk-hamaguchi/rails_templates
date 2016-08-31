@@ -83,11 +83,17 @@ run 'bundle install'
 
 
 ## Configure rails.
-gsub_file 'config/application.rb', /^# require "rails\/test_unit\/railtie"\n$/, ''
+gsub_file 'config/application.rb',
+  /^# require "rails\/test_unit\/railtie"\n$/,
+  ''
 gsub_file 'config/application.rb', /"/, "'"
 
-gsub_file 'config/environments/production.rb', /"(RAILS_LOG_TO_STDOUT)"/, '\'\1\''
-gsub_file 'config/environments/production.rb', /config.log_tags = \[ :request_id \]/, 'config.log_tags = [:request_id]'
+gsub_file 'config/environments/production.rb',
+  /"(RAILS_LOG_TO_STDOUT)"/,
+  '\'\1\''
+gsub_file 'config/environments/production.rb',
+  /config.log_tags = \[ :request_id \]/,
+  'config.log_tags = [:request_id]'
 
 file 'config/initializers/time_zone.rb', <<-CODE
 Rails.application.config.time_zone = 'Tokyo'
@@ -1033,6 +1039,8 @@ def page_name_to_path(page_name, options = {})
     root_path
   when 'ログインページ'
     new_user_session_path
+  when 'アカウント登録ページ'
+    new_user_registration_path
   when 'パスワード再設定メール送信ページ'
     new_user_password_path
   when 'パスワード再設定ページ'
@@ -1046,11 +1054,13 @@ end
 
 def form_name_to_id(form_name)
   case form_name
+  when 'アカウント登録フォーム'
+    '#new_user'
+  when 'ログインフォーム'
+    '#new_user'
   when 'パスワード再設定フォーム'
     '#new_user'
   when 'パスワード再設定メール送信フォーム'
-    '#new_user'
-  when 'ログインフォーム'
     '#new_user'
   else
     raise "Unknown form name '#{form_name}'."
@@ -1064,7 +1074,7 @@ def area_name_to_id(area_name)
   when 'ワーニングエリア'
     '#warning_area'
   else
-    raise "Unknown form name '#{area_name}'."
+    raise "Unknown area name '#{area_name}'."
   end
 end
 
@@ -1073,7 +1083,24 @@ def menu_name_to_id(menu_name)
   when 'ドロップダウンメニュー'
     '#dropdownMenu2'
   else
-    raise "Unknown form name '#{menu_name}'."
+    raise "Unknown menu name '#{menu_name}'."
+  end
+end
+
+def field_name_to_name(field_name)
+  case field_name
+  when 'メールアドレスフィールド'
+    'user[email]'
+  when 'ユーザ名フィールド'
+    'user[username]'
+  when 'パスワードフィールド'
+    'user[password]'
+  when '確認用パスワードフィールド'
+    'user[password_confirmation]'
+  when 'ログインを記憶フィールド'
+    'user[remember_me]'
+  else
+    raise "Unknown field name '#{field_name}'."
   end
 end
 CODE
@@ -1093,14 +1120,15 @@ end
 When(/^"([^"]*)"に下記を入力する:$/) do |form_name, table|
   within(form_name_to_id(form_name)) do
     table.hashes.each do |set|
+      field_name = set['field']  =~ /\]$/ ? set['field'] : field_name_to_name(set['field'] + 'フィールド')
       i = 0
       begin
-        find(set['field'])
+        find(field_name)
       rescue => e
         raise e if i > 3
         i += 1
       end
-      fill_in set['field'], with: set['value']
+      fill_in field_name, with: set['value']
     end
   end
 end
@@ -1118,10 +1146,11 @@ end
 
 When(/^"([^"]*)"の"([^"]*)"をチェック(する|しない)$/) do |form_name, field_name, check|
   within(form_name_to_id(form_name)) do
+    f_name = field_name =~ /\]$/ ? field_name : field_name_to_name(field_name + 'フィールド')
     if check == 'する'
-      check(field_name)
+      check(f_name)
     else
-      uncheck(field_name)
+      uncheck(f_name)
     end
   end
 end
@@ -1210,7 +1239,9 @@ end
 
 Then(/^"([^"]*)"の"([^"]*)"がハイライトされ、下記のエラーが表示されている:$/) do |form_name, field_name, message|
   within(form_name_to_id(form_name)) do
-
+    field_elm = find_field(field_name_to_name(field_name)).find(:xpath, './..')
+    expect(field_elm[:class].split(/\s+/)).to include 'has-danger'
+    expect(field_elm).to have_content message
   end
 end
 CODE
@@ -1231,10 +1262,10 @@ file 'features/login.feature', <<-CODE
   かつ"ログイン"をクリックする
   ならば "ログインページ"が表示されている
   もし "ログインフォーム"に下記を入力する:
-    | field             | value                |
-    | user[email]       | testuser@example.com |
-    | user[password]    | testpass             |
-  かつ "ログインフォーム"の"user[remember_me]"をチェックしない
+    | field          | value                |
+    | メールアドレス | testuser@example.com |
+    | パスワード     | testpass             |
+  かつ "ログインフォーム"の"ログインを記憶"をチェックしない
   かつ "ログイン"をクリックする
   ならば "マイトップページ"が表示されている
   かつ "インフォメーションエリア"に下記が表示されている:
@@ -1249,9 +1280,9 @@ file 'features/login.feature', <<-CODE
   ならば "ログインページ"が表示されている
   もし "ログインフォーム"に下記を入力する:
     | field          | value                   |
-    | user[email]    | unknownuser@example.com |
-    | user[password] | testpass                |
-  かつ "ログインフォーム"の"user[remember_me]"をチェックしない
+    | メールアドレス | unknownuser@example.com |
+    | パスワード     | testpass                |
+  かつ "ログインフォーム"の"ログインを記憶"をチェックしない
   かつ "ログイン"をクリックする
   ならば "ログインページ"が表示されている
   かつ "ワーニングエリア"に下記が表示されている:
@@ -1266,9 +1297,9 @@ file 'features/login.feature', <<-CODE
   ならば "ログインページ"が表示されている
   もし "ログインフォーム"に下記を入力する:
     | field          | value                |
-    | user[email]    | testuser@example.com |
-    | user[password] | unknown              |
-  かつ "ログインフォーム"の"user[remember_me]"をチェックしない
+    | メールアドレス | testuser@example.com |
+    | パスワード     | unknown              |
+  かつ "ログインフォーム"の"ログインを記憶"をチェックしない
   かつ "ログイン"をクリックする
   ならば "ログインページ"が表示されている
   かつ "ワーニングエリア"に下記が表示されている:
@@ -1310,9 +1341,9 @@ file 'features/remember_login_info.feature', <<-CODE
   ならば "ログインページ"が表示されている
   もし "ログインフォーム"に下記を入力する:
     | field          | value                |
-    | user[email]    | testuser@example.com |
-    | user[password] | testpass             |
-  かつ "ログインフォーム"の"user[remember_me]"をチェックする
+    | メールアドレス | testuser@example.com |
+    | パスワード     | testpass             |
+  かつ "ログインフォーム"の"ログインを記憶"をチェックする
   かつ "ログイン"をクリックする
   ならば "マイトップページ"が表示されている
   もし ログアウトする
@@ -1338,7 +1369,7 @@ file 'features/password_reminder.feature', <<-CODE
   ならば "パスワード再設定メール送信ページ"が表示されている
   もし "パスワード再設定メール送信フォーム"に下記を入力する:
     | field          | value                |
-    | user[email]    | testuser@example.com |
+    | メールアドレス | testuser@example.com |
   かつ "パスワードの再設定方法を送信する"をクリックする
   ならば "ログインページ"が表示されている
   かつ "インフォメーションエリア"に下記が表示されている:
@@ -1348,9 +1379,9 @@ file 'features/password_reminder.feature', <<-CODE
   もし メールに含まれているパスワード再設定用URLを開く
   ならば "パスワード再設定ページ"が表示されている
   もし "パスワード再設定メール送信フォーム"に下記を入力する:
-    | field                       | value       |
-    | user[password]              | newpassword |
-    | user[password_confirmation] | newpassword |
+    | field            | value       |
+    | パスワード       | newpassword |
+    | 確認用パスワード | newpassword |
   かつ "パスワードを変更する"をクリックする
   ならば "マイトップページ"が表示されている
   もし ログアウトする
@@ -1359,8 +1390,8 @@ file 'features/password_reminder.feature', <<-CODE
   ならば "ログインページ"が表示されている
   もし "ログインフォーム"に下記を入力する:
     | field          | value                |
-    | user[email]    | testuser@example.com |
-    | user[password] | newpassword          |
+    | メールアドレス | testuser@example.com |
+    | パスワード     | newpassword          |
   かつ "ログインフォーム"の"user[remember_me]"をチェックする
   かつ "ログイン"をクリックする
   ならば "マイトップページ"が表示されている
@@ -1374,7 +1405,7 @@ file 'features/password_reminder.feature', <<-CODE
   ならば "パスワード再設定メール送信ページ"が表示されている
   もし "パスワード再設定メール送信フォーム"に下記を入力する:
     | field          | value                |
-    | user[email]    | unknown@example.com |
+    | メールアドレス | unknown@example.com |
   かつ "パスワードの再設定方法を送信する"をクリックする
   ならば "ワーニングエリア"に下記が表示されている:
     """
@@ -1413,7 +1444,7 @@ file 'features/password_reminder.feature', <<-CODE
   ならば "パスワード再設定メール送信ページ"が表示されている
   もし "パスワード再設定メール送信フォーム"に下記を入力する:
     | field          | value                |
-    | user[email]    | testuser@example.com |
+    | メールアドレス | testuser@example.com |
   かつ "パスワードの再設定方法を送信する"をクリックする
   ならば "ログインページ"が表示されている
   かつ "インフォメーションエリア"に下記が表示されている:
@@ -1423,9 +1454,9 @@ file 'features/password_reminder.feature', <<-CODE
   もし メールに含まれているパスワード再設定用URLを開く
   ならば "パスワード再設定ページ"が表示されている
   もし "パスワード再設定メール送信フォーム"に下記を入力する:
-    | field                       | value       |
-    | user[password]              | newpassword |
-    | user[password_confirmation] | hogehoge    |
+    | field            | value       |
+    | パスワード       | newpassword |
+    | 確認用パスワード | hogehoge    |
   かつ "パスワードを変更する"をクリックする
   ならば "ワーニングエリア"に下記が表示されている:
     """
@@ -1453,6 +1484,110 @@ file 'features/session_timeout.feature', <<-CODE
   かつ "ワーニングエリア"に下記が表示されている:
     """
     セッションがタイムアウトしました。もう一度ログインしてください。
+    """
+CODE
+file 'features/sign_up.feature', <<-CODE
+# language:ja
+
+機能: ユーザのサインアップ
+
+
+シナリオ: 登録希望者はアカウント登録をすることができる
+  もし "トップページ"を表示する
+  かつ "ログイン"をクリックする
+  ならば "ログインページ"が表示されている
+  もし "アカウント登録"をクリックする
+  ならば "アカウント登録ページ"が表示されている
+  もし "アカウント登録フォーム"に下記を入力する:
+    | field            | value                |
+    | ユーザ名         | TEST USER            |
+    | メールアドレス   | testuser@example.com |
+    | パスワード       | newpassword          |
+    | 確認用パスワード | newpassword          |
+  かつ "アカウント登録"をクリックする
+  ならば "マイトップページ"が表示されている
+  かつ "インフォメーションエリア"に下記が表示されている:
+    """
+    アカウント登録が完了しました。
+    """
+  もし ログアウトする
+  ならば "トップページ"が表示されている
+  かつ "ログイン"をクリックする
+  ならば "ログインページ"が表示されている
+  もし "ログインフォーム"に下記を入力する:
+    | field          | value                |
+    | メールアドレス | testuser@example.com |
+    | パスワード     | newpassword          |
+  かつ "ログインフォーム"の"ログインを記憶"をチェックしない
+  かつ "ログイン"をクリックする
+  ならば "マイトップページ"が表示されている
+
+
+シナリオ: すでに登録されているメールアドレスではアカウント登録は失敗する
+  前提 下記のユーザーが登録されている:
+    | username   | email                   | password |
+    | Exist User | existeduser@example.com | testpass |
+  もし "トップページ"を表示する
+  かつ "ログイン"をクリックする
+  ならば "ログインページ"が表示されている
+  もし "アカウント登録"をクリックする
+  ならば "アカウント登録ページ"が表示されている
+  もし "アカウント登録フォーム"に下記を入力する:
+    | field            | value                   |
+    | ユーザ名         | TEST USER               |
+    | メールアドレス   | existeduser@example.com |
+    | パスワード       | newpassword             |
+    | 確認用パスワード | newpassword             |
+  かつ "アカウント登録"をクリックする
+  ならば "ワーニングエリア"に下記が表示されている:
+    """
+    エラーが発生したため ユーザ は保存されませんでした: メールアドレスはすでに存在します
+    """
+  かつ "アカウント登録フォーム"の"メールアドレスフィールド"がハイライトされ、下記のエラーが表示されている:
+    """
+    はすでに存在します
+    """
+
+
+シナリオ: 各フィールドを入力しなかった場合、アカウント登録は失敗する
+  もし "トップページ"を表示する
+  かつ "ログイン"をクリックする
+  ならば "ログインページ"が表示されている
+  もし "アカウント登録"をクリックする
+  ならば "アカウント登録ページ"が表示されている
+  もし "アカウント登録フォーム"に下記を入力する:
+    | field            | value |
+    | ユーザ名         |       |
+    | メールアドレス   |       |
+    | パスワード       |       |
+    | 確認用パスワード |       |
+  かつ "アカウント登録"をクリックする
+  ならば "ワーニングエリア"に下記が表示されている:
+    """
+    エラーが発生したため ユーザ は保存されませんでした: ユーザ名を入力してください ユーザ名は2文字以上で入力してください メールアドレスを入力してください メールアドレスは不正な値です メールアドレスを入力してください パスワードを入力してください パスワードは8文字以上で入力してください パスワードを入力してください
+    """
+  かつ "アカウント登録フォーム"の"メールアドレスフィールド"がハイライトされ、下記のエラーが表示されている:
+    """
+    を入力してください
+    """
+
+
+シナリオ: パスワードの確認入力を誤った場合、エラーが表示される
+  もし "トップページ"を表示する
+  かつ "ログイン"をクリックする
+  ならば "ログインページ"が表示されている
+  もし "アカウント登録"をクリックする
+  ならば "アカウント登録ページ"が表示されている
+  もし "アカウント登録フォーム"に下記を入力する:
+    | field            | value                |
+    | ユーザ名         | TEST USER            |
+    | メールアドレス   | testuser@example.com |
+    | パスワード       | newpassword          |
+    | 確認用パスワード | hogehoge             |
+  かつ "アカウント登録"をクリックする
+  ならば "ワーニングエリア"に下記が表示されている:
+    """
+    2 件のエラーが発生したため ユーザ は保存されませんでした: 確認用パスワードとパスワードの入力が一致しません 確認用パスワードとパスワードの入力が一致しません
     """
 CODE
 
@@ -1552,6 +1687,8 @@ RUN bundle install --deployment --without development test
 
 ADD . $APP_ROOT
 
+RUN bundle exec rake assets:precompile
+
 EXPOSE $PORT
 
 CMD bundle exec rails s -p $PORT -b '0.0.0.0' -e $RAILS_ENV
@@ -1573,80 +1710,27 @@ services:
     depends_on:
       - db
       - redis
-    ports:
-      - '3000:3000'
     environment:
       - DATABASE_URL=mysql2://root:mysql123@db/template_sample?reconnect=true
-      - SECRET_KEY_BASE=fbf00688f4993a0ddd3f38c9d9f6dab51bf4b9e82a5f195cad1fe8e6c97def64db8901a0c5140e3e663249c0e09e7632e4b4c69511af2a07db296f6ee7be4271
+      - SECRET_KEY_BASE=#{SecureRandom.hex(64)}
+      - RAILS_MAX_THREADS=5
+      - WEB_CONCURRENCY=2
       - APP_ROOT=/myapp
+    tmpfs:
+      - /myapp/tmp
   web:
     image: nginx
     depends_on:
       - app
     ports:
       - '80:80'
-      - '443:443'
+    volumes:
+      - './misc/nginx/default.conf:/etc/nginx/conf.d/default.conf'
 CODE
-
-__END__
-file "misc/capistrano/templates/monit.rc.erb", <<-'CODE'
-check process <%= fetch(:application) %> with pidfile <%= current_path %>/tmp/pids/puma.pid
-  group railsapp
-  start program = "/usr/local/rvm/bin/rvm-shell <%= fetch(:rvm_ruby_version) %> -c 'cd <%= current_path %> ; RAILS_ENV=production bundle exec puma -C config/puma.rb -b unix:///var/lib/puma/<%= fetch(:application) %>.sock'" as uid rails and gid rails
-  stop program = "/bin/kill `cat <%= current_path %>/tmp/pids/puma.pid`" as uid rails and gid rails
-  if failed unixsocket /var/lib/puma/<%= fetch(:application) %>.sock then restart
-  if 5 restarts within 5 cycles then timeout
-  depends on <%= fetch(:application) %>_database_yml
-
-check file <%= fetch(:application) %>_database_yml path <%= current_path %>/config/database.yml
-  group railsapp
-  if failed checksum then unmonitor
-
-CODE
-
-file "misc/capistrano/templates/nginx.conf.erb", <<-'CODE'
+file 'misc/nginx/default.conf', <<-'CODE'
 server{
   listen       80;
   server_name _;
-  location / {
-    rewrite ^(.*) https://$http_host$1;
-    break;
-  }
-}
-
-
-server{
-  listen 443;
-  server_name _;
-
-  root <%= current_path %>/public/;
-
-  client_max_body_size 100M;
-
-
-  ssl on;
-  ssl_certificate     server.crt;
-  ssl_certificate_key server.key;
-
-  ssl_session_timeout 5m;
-
-  ssl_protocols       SSLv3 TLSv1;
-  ssl_ciphers         HIGH:!ADH:!aNULL:!MD5;
-
-  ssl_prefer_server_ciphers   on;
-
-  location /assets/ {
-    root <%= current_path %>/public/;
-  }
-
-  location /system/ {
-    root <%= current_path %>/public/;
-  }
-
-  location /favicon.ico {
-    root <%= current_path %>/public/;
-  }
-
 
   location / {
     proxy_set_header X-Real-IP $remote_addr;
@@ -1656,11 +1740,7 @@ server{
     proxy_redirect off;
     proxy_read_timeout 300;
 
-    proxy_pass http://<%= fetch(:application) %>;
+    proxy_pass http://app:3000;
   }
 }
-upstream <%= fetch(:application) %> {
-  server unix:///var/lib/puma/<%= fetch(:application) %>.sock;
-}
 CODE
-=end
