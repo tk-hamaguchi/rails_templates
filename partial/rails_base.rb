@@ -1,3 +1,7 @@
+def source_paths
+  [Rails.root]
+end
+
 # Copy database.yml to .example and add .gitigrore
 database_yml_src = 'config/database.yml'
 database_yml_dst = database_yml_src + '.example'
@@ -20,3 +24,4 @@ comment_lines   'Gemfile', /gem 'tzinfo-data'/
 # Add rails-i18n to Gemfile
 gem 'rails-i18n'
 
+gsub_file 'config/environments/production.rb', /^(\s*config\.i18n\.fallbacks =)\s*.*$/, '\1 [I18n.default_locale]'
